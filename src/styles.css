@@ -667,12 +667,6 @@ html:not(.dark) .k-mist-band {
   line-height: 1;
 }
 
-@media (min-width: 640px) {
-  .encryption-flow .encryption-flow-arrow {
-    display: none;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

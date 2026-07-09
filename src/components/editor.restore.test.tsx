@@ -11,29 +11,33 @@ const appendCalls: Array<{
   iv: string;
 }> = [];
 
-vi.mock("@/lib/pages", () => ({
-  appendVersion: vi.fn(async (args: {
-    slug: string;
-    edit_token: string;
-    ciphertext: string;
-    iv: string;
-  }) => {
-    appendCalls.push(args);
-    return { id: `v-${appendCalls.length}`, created_at: new Date().toISOString() };
-  }),
-  listVersions: vi.fn(async () => [
-    {
-      id: "v-old",
-      ciphertext: "OLD_CIPHERTEXT",
-      iv: "OLD_IV",
-      created_at: "2024-01-01T00:00:00.000Z",
-    },
-  ]),
-  listAttachments: vi.fn(async () => []),
-  registerAttachment: vi.fn(),
-  uploadAttachmentBlob: vi.fn(),
-  downloadAttachmentBlob: vi.fn(),
-}));
+vi.mock("@/lib/pages", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/pages")>();
+  return {
+    ...actual,
+    appendVersion: vi.fn(async (args: {
+      slug: string;
+      edit_token: string;
+      ciphertext: string;
+      iv: string;
+    }) => {
+      appendCalls.push(args);
+      return { id: `v-${appendCalls.length}`, created_at: new Date().toISOString() };
+    }),
+    listVersions: vi.fn(async () => [
+      {
+        id: "v-old",
+        ciphertext: "OLD_CIPHERTEXT",
+        iv: "OLD_IV",
+        created_at: "2024-01-01T00:00:00.000Z",
+      },
+    ]),
+    listAttachments: vi.fn(async () => []),
+    registerAttachment: vi.fn(),
+    uploadAttachmentBlob: vi.fn(),
+    downloadAttachmentBlob: vi.fn(),
+  };
+});
 
 // Deterministic, fast "crypto" that lets us assert against produced ciphertext.
 vi.mock("@/lib/crypto", () => ({

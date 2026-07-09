@@ -7,7 +7,6 @@ import { SpiritCursor } from "@/components/site/spirit-cursor";
 
 type SiteLayoutProps = {
   children: ReactNode;
-  header?: "default" | "note";
   footer?: boolean;
   atmosphere?: boolean;
   onScrollTo?: (id: string) => void;
@@ -15,7 +14,6 @@ type SiteLayoutProps = {
 
 export function SiteLayout({
   children,
-  header = "default",
   footer = true,
   atmosphere = true,
   onScrollTo,
@@ -37,9 +35,9 @@ export function SiteLayout({
           Skip to content
         </a>
 
-        <SiteHeader variant={header} onScrollTo={onScrollTo} />
+        <SiteHeader onScrollTo={onScrollTo} />
 
-        <main id="main" className={`flex-1 ${header !== "note" ? "pt-14 sm:pt-16 lg:pt-[72px]" : ""}`}>
+        <main id="main" className="flex-1 pt-14 sm:pt-16 lg:pt-[72px]">
           {children}
         </main>
 

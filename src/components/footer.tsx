@@ -1,6 +1,3 @@
-import { Link } from "@tanstack/react-router";
-
-import { KodamaMark } from "@/components/kodama-mark";
 import { SITE } from "@/lib/brand";
 
 export function Footer() {
@@ -19,25 +16,6 @@ export function Footer() {
         >
           ← Back to Kodama
         </a>
-      </div>
-    </footer>
-  );
-}
-
-export function FooterCompact() {
-  return (
-    <footer className="border-t border-border/50 bg-background/70 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 font-display text-[15px] tracking-tight text-foreground transition-opacity hover:opacity-80"
-        >
-          <KodamaMark size={22} />
-          Kodama Note
-        </Link>
-        <p className="hidden text-[11px] font-light text-muted-foreground sm:block">
-          Zero-knowledge encryption
-        </p>
       </div>
     </footer>
   );
