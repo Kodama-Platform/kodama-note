@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/kodama-mark.svg?v=2" type="image/svg+xml" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=2" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" />
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=2" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#F6F4F0" />
+    <title>Kodama — End-to-end encrypted notes in seconds</title>
+    <meta
+      name="description"
+      content="Create end-to-end encrypted notes in seconds. No account, no tracking. Share a link and password—only readers with the password can decrypt your page."
+    />
+    <meta property="og:title" content="Kodama — End-to-end encrypted notes in seconds" />
+    <meta
+      property="og:description"
+      content="Secure text sharing without accounts. Create end-to-end encrypted pages instantly—only people with the password can read them."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://note.kodama.page/kodama-icon-256.png" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+    <script>
+      (() => {
+        try {
+          var k = "kodama-theme";
+          var s = localStorage.getItem(k);
+          var t =
+            s === "light" || s === "dark"
+              ? s
+              : matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          if (t === "dark") document.documentElement.classList.add("dark");
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) m.setAttribute("content", t === "dark" ? "#1a1d1b" : "#F6F4F0");
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
