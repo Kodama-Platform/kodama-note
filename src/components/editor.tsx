@@ -114,8 +114,10 @@ export function Editor({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const initialSerialized = useMemo(() => serializeWorkbook(initialWorkbook), [initialWorkbook]);
-  const [lastSavedSerialized, setLastSavedSerialized] = useState(initialSerialized);
   const lastSavedRef = useRef(initialSerialized);
+  const [isDirty, setIsDirty] = useState(false);
+  const isDirtyRef = useRef(false);
+  const editGenerationRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const richEditorRef = useRef<RichEditorHandle | null>(null);
   const editorSyncedRef = useRef(false);
@@ -203,37 +205,34 @@ export function Editor({
     [burnMode, editToken, slug],
   );
 
-  const serializedWorkbook = useMemo(() => {
-    try {
-      return serializeWorkbook(workbook);
-    } catch {
-      return lastSavedRef.current;
-    }
-  }, [workbook]);
-
-  const isDirty = useMemo(
-    () => serializedWorkbook !== lastSavedSerialized,
-    [serializedWorkbook, lastSavedSerialized],
-  );
-
-  const markSaved = useCallback((plaintext: string, payload: WorkbookPayload) => {
-    lastSavedRef.current = plaintext;
-    setLastSavedSerialized(plaintext);
-    setWorkbook((current) => {
-      try {
-        return serializeWorkbook(current) === plaintext ? payload : current;
-      } catch {
-        return payload;
-      }
-    });
-    setStatus(() => {
-      try {
-        return serializeWorkbook(workbookRef.current) === plaintext ? "saved" : "dirty";
-      } catch {
-        return "error";
-      }
-    });
+  const markDirty = useCallback(() => {
+    editGenerationRef.current += 1;
+    if (isDirtyRef.current) return;
+    isDirtyRef.current = true;
+    setIsDirty(true);
+    setStatus((s) => (s === "saving" ? "saving" : "dirty"));
   }, []);
+
+  const markClean = useCallback(() => {
+    isDirtyRef.current = false;
+    setIsDirty(false);
+  }, []);
+
+  const markSaved = useCallback(
+    (plaintext: string, payload: WorkbookPayload, generationAtSaveStart: number) => {
+      lastSavedRef.current = plaintext;
+      const stillSameEdits = editGenerationRef.current === generationAtSaveStart;
+      if (stillSameEdits) {
+        workbookRef.current = payload;
+        setWorkbook(payload);
+        markClean();
+        setStatus("saved");
+        return;
+      }
+      setStatus("dirty");
+    },
+    [markClean],
+  );
 
   const save = useCallback(
     async (opts?: {
@@ -259,15 +258,16 @@ export function Editor({
         );
         return false;
       }
-      if (!opts?.force && plaintext === lastSavedRef.current) {
-        markSaved(plaintext, payload);
+      if (!opts?.force && !isDirtyRef.current && plaintext === lastSavedRef.current) {
+        markSaved(plaintext, payload, editGenerationRef.current);
         return true;
       }
+      const generationAtSaveStart = editGenerationRef.current;
       setStatus("saving");
       try {
         const { ciphertext, iv } = await encrypt(cryptoKey, plaintext);
         const res = await savePage({ slug, edit_token: editToken, ciphertext, iv });
-        markSaved(plaintext, payload);
+        markSaved(plaintext, payload, generationAtSaveStart);
         setUpdatedAt(res.created_at);
         return true;
       } catch (e) {
@@ -286,8 +286,9 @@ export function Editor({
     setActiveSheetId(sheetId);
     writeLastOpenedSheet(slug, sheetId);
     setSheetHash(sheetId);
+    markClean();
     setStatus("idle");
-  }, [slug]);
+  }, [markClean, slug]);
 
   const handleLeaveSave = useCallback(async () => {
     setLeaveSaving(true);
@@ -336,23 +337,20 @@ export function Editor({
 
       const leavingSheetId = activeSheetId;
       const base = wb ?? workbookRef.current;
+      const priorMarkdown = getActiveSheetMarkdown(base, leavingSheetId);
       const leavingMarkdown =
         richEditorRef.current?.getMarkdown() ??
-        getActiveSheetMarkdown(base, leavingSheetId);
+        priorMarkdown;
 
       let flushed: WorkbookPayload;
       try {
-        flushed = updateActiveSheetMarkdown(base, leavingSheetId, leavingMarkdown);
+        flushed =
+          priorMarkdown === leavingMarkdown
+            ? base
+            : updateActiveSheetMarkdown(base, leavingSheetId, leavingMarkdown);
         serializeWorkbook(flushed);
       } catch {
         return;
-      }
-
-      let dirty = false;
-      try {
-        dirty = serializeWorkbook(flushed) !== lastSavedRef.current;
-      } catch {
-        /* skip background save */
       }
 
       workbookRef.current = flushed;
@@ -362,7 +360,7 @@ export function Editor({
       setSheetHash(nextSheetId);
       editorSyncedRef.current = false;
 
-      if (canSave && saveMode === "auto" && dirty) {
+      if (canSave && saveMode === "auto" && isDirtyRef.current) {
         void save({ workbook: flushed, skipFlush: true });
       }
     },
@@ -371,40 +369,27 @@ export function Editor({
 
   const handleMarkdownChange = useCallback(
     (markdown: string) => {
-      if (!editorSyncedRef.current) return;
-      setWorkbook((prev) => {
-        if (getActiveSheetMarkdown(prev, activeSheetId) === markdown) return prev;
-        const next = updateActiveSheetMarkdown(prev, activeSheetId, markdown);
-        try {
-          if (serializeWorkbook(next) === lastSavedRef.current) return prev;
-        } catch {
-          /* keep update */
-        }
-        return next;
-      });
+      markDirty();
+      setWorkbook((prev) => updateActiveSheetMarkdown(prev, activeSheetId, markdown));
     },
-    [activeSheetId],
+    [activeSheetId, markDirty],
   );
 
   const handleEditorBaseline = useCallback(
     (markdown: string) => {
       try {
         const prior = workbookRef.current;
-        const priorSerialized = serializeWorkbook(prior);
-        const wasClean = priorSerialized === lastSavedRef.current;
         const priorMarkdown = getActiveSheetMarkdown(prior, activeSheetId);
         const updated =
           priorMarkdown === markdown
             ? prior
             : updateActiveSheetMarkdown(prior, activeSheetId, markdown);
-        const serialized = serializeWorkbook(updated);
         workbookRef.current = updated;
         if (updated !== prior) setWorkbook(updated);
         editorSyncedRef.current = true;
-        if (wasClean) {
-          lastSavedRef.current = serialized;
-          setLastSavedSerialized(serialized);
-          setStatus("idle");
+        if (!isDirtyRef.current) {
+          lastSavedRef.current = serializeWorkbook(updated);
+          setStatus((s) => (s === "saved" ? "saved" : "idle"));
         }
       } catch {
         /* keep prior baseline */
@@ -417,22 +402,28 @@ export function Editor({
     try {
       const next = addSheet(workbook);
       const newSheet = getOrderedSheets(next).at(-1)!;
+      markDirty();
       setWorkbook(next);
       void switchSheet(newSheet.sheet_id, next);
     } catch (e) {
       toast.error(e instanceof WorkbookError ? "Maximum sheets reached" : (e as Error).message);
     }
-  }, [switchSheet, workbook]);
+  }, [markDirty, switchSheet, workbook]);
 
-  const handleRenameSheet = useCallback((sheetId: string, title: string) => {
-    setWorkbook((prev) => renameSheet(prev, sheetId, title));
-  }, []);
+  const handleRenameSheet = useCallback(
+    (sheetId: string, title: string) => {
+      markDirty();
+      setWorkbook((prev) => renameSheet(prev, sheetId, title));
+    },
+    [markDirty],
+  );
 
   const handleAttachmentAdded = useCallback(
     (id: string) => {
+      markDirty();
       setWorkbook((prev) => addSheetAttachment(prev, activeSheetId, id));
     },
-    [activeSheetId],
+    [activeSheetId, markDirty],
   );
 
   const handleDeleteSheet = useCallback(
@@ -461,6 +452,7 @@ export function Editor({
         const focusId =
           sheetId === activeSheetId ? pickAdjacentSheetId(wb, sheetId) : activeSheetId;
         const next = deleteSheet(wb, sheetId);
+        markDirty();
         setWorkbook(next);
         if (sheetId === activeSheetId) {
           void switchSheet(focusId, next);
@@ -469,12 +461,16 @@ export function Editor({
         toast.error((e as Error).message);
       }
     },
-    [activeSheetId, editToken, queryClient, slug, switchSheet, workbook],
+    [activeSheetId, editToken, markDirty, queryClient, slug, switchSheet, workbook],
   );
 
-  const handleReorderSheets = useCallback((orderedIds: string[]) => {
-    setWorkbook((prev) => reorderSheets(prev, orderedIds));
-  }, []);
+  const handleReorderSheets = useCallback(
+    (orderedIds: string[]) => {
+      markDirty();
+      setWorkbook((prev) => reorderSheets(prev, orderedIds));
+    },
+    [markDirty],
+  );
 
   useEffect(() => {
     if (!markdownView) return;
@@ -497,7 +493,7 @@ export function Editor({
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [serializedWorkbook, canSave, isDirty, save, saveMode]);
+  }, [canSave, isDirty, save, saveMode]);
 
   // Warn before closing tab or leaving the site
   useEffect(() => {

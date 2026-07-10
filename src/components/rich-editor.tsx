@@ -118,6 +118,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
     const lastEmitted = useRef(initialContent);
     const skipUpdate = useRef(false);
     const baselineSet = useRef(false);
+    const baselineUntil = useRef(0);
     const editorRef = useRef<Editor | null>(null);
     const outlineJumpRef = useRef(false);
     const openLinkDialogRef = useRef<() => void>(() => {});
@@ -319,21 +320,37 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
           return false;
         },
       },
-      onUpdate: ({ editor: ed }) => {
+      onUpdate: ({ editor: ed, transaction }) => {
         const md = ed.storage.markdown.getMarkdown();
-        if (!baselineSet.current) {
-          baselineSet.current = true;
+        const syncBaseline = () => {
           lastEmitted.current = md;
           onBaseline?.(md);
+        };
+        if (!baselineSet.current) {
+          baselineSet.current = true;
+          syncBaseline();
           return;
         }
-        if (skipUpdate.current) return;
+        if (skipUpdate.current || !transaction.docChanged) return;
+        const inBaselineWindow = Date.now() < baselineUntil.current;
+        const isUserEdit = ed.isFocused && !inBaselineWindow;
+        if (!isUserEdit) {
+          syncBaseline();
+          return;
+        }
         lastEmitted.current = md;
         onMarkdownChange(md);
       },
       autofocus: autoFocus ? "end" : false,
       onCreate: ({ editor: ed }) => {
         editorRef.current = ed;
+        baselineUntil.current = Date.now() + 150;
+        if (!baselineSet.current) {
+          baselineSet.current = true;
+          const md = ed.storage.markdown.getMarkdown();
+          lastEmitted.current = md;
+          onBaseline?.(md);
+        }
       },
       onDestroy: () => {
         editorRef.current = null;
