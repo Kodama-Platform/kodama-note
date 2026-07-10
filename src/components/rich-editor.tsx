@@ -46,14 +46,21 @@ import {
   scrollElementBelowHeader,
   scrollViewportYToHeaderOffset,
 } from "@/lib/scroll-to-heading";
+import {
+  collectTextMatches,
+  replaceAllTextMatches,
+  replaceTextMatch,
+  selectTextMatch,
+} from "@/lib/editor-find";
 
 export type RichEditorHandle = {
   getMarkdown: () => string;
   setMarkdown: (markdown: string) => void;
   focus: () => void;
-  findInDocument: (query: string, startIndex?: number) => boolean;
-  replaceInMarkdown: (query: string, replacement: string, index: number) => string | null;
-  replaceAllInMarkdown: (query: string, replacement: string) => string;
+  countFindMatches: (query: string) => number;
+  findMatchAt: (query: string, matchIndex: number) => boolean;
+  replaceMatchAt: (query: string, replacement: string, matchIndex: number) => boolean;
+  replaceAllMatches: (query: string, replacement: string) => void;
   scrollToHeading: (text: string) => void;
   insertImageFromFile: (file: File) => Promise<void>;
 };
@@ -61,6 +68,8 @@ export type RichEditorHandle = {
 type RichEditorProps = {
   initialContent: string;
   onMarkdownChange: (markdown: string) => void;
+  /** Fired once after TipTap finishes parsing initial content — use to align save baseline. */
+  onBaseline?: (markdown: string) => void;
   slug: string;
   cryptoKey: CryptoKey;
   editToken: string | null;
@@ -72,9 +81,6 @@ type RichEditorProps = {
   focusMode?: boolean;
 };
 
-function escapeRegExp(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 function shouldParsePasteAsMarkdown(text: string): boolean {
   return (
@@ -106,11 +112,12 @@ function linkTargetFromEvent(event: MouseEvent, root: HTMLElement): HTMLAnchorEl
 
 export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
   function RichEditor(
-    { initialContent, onMarkdownChange, slug, cryptoKey, editToken, allowedAttachmentIds, planTier = "free", sheetAttachmentCount = 0, onAttachmentAdded, autoFocus = true, focusMode = false },
+    { initialContent, onMarkdownChange, onBaseline, slug, cryptoKey, editToken, allowedAttachmentIds, planTier = "free", sheetAttachmentCount = 0, onAttachmentAdded, autoFocus = true, focusMode = false },
     ref,
   ) {
     const lastEmitted = useRef(initialContent);
     const skipUpdate = useRef(false);
+    const baselineSet = useRef(false);
     const editorRef = useRef<Editor | null>(null);
     const outlineJumpRef = useRef(false);
     const openLinkDialogRef = useRef<() => void>(() => {});
@@ -313,8 +320,14 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         },
       },
       onUpdate: ({ editor: ed }) => {
-        if (skipUpdate.current) return;
         const md = ed.storage.markdown.getMarkdown();
+        if (!baselineSet.current) {
+          baselineSet.current = true;
+          lastEmitted.current = md;
+          onBaseline?.(md);
+          return;
+        }
+        if (skipUpdate.current) return;
         lastEmitted.current = md;
         onMarkdownChange(md);
       },
@@ -392,56 +405,29 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
           onMarkdownChange(normalized);
         },
         focus: () => editor?.commands.focus(),
-        findInDocument: (query: string, startIndex = 0) => {
+        countFindMatches: (query: string) => {
+          if (!editor || !query) return 0;
+          return collectTextMatches(editor.state.doc, query).length;
+        },
+        findMatchAt: (query: string, matchIndex: number) => {
           if (!editor || !query) return false;
-          const hay = editor.storage.markdown.getMarkdown();
-          const idx = hay.toLowerCase().indexOf(query.toLowerCase(), startIndex);
-          if (idx === -1) return false;
-          editor.commands.focus();
-          // Best-effort scroll: walk doc to approximate match position
-          let charCount = 0;
-          let found = false;
-          editor.state.doc.descendants((node, pos) => {
-            if (found) return false;
-            if (node.isText && node.text) {
-              const next = charCount + node.text.length;
-              if (idx >= charCount && idx < next) {
-                const offset = idx - charCount;
-                editor
-                  ?.chain()
-                  .focus()
-                  .setTextSelection({ from: pos + offset, to: pos + offset + query.length })
-                  .scrollIntoView()
-                  .run();
-                found = true;
-                return false;
-              }
-              charCount = next;
-            } else if (node.isBlock) {
-              charCount += 1;
-            }
-          });
+          const matches = collectTextMatches(editor.state.doc, query);
+          if (matches.length === 0) return false;
+          const safeIdx = ((matchIndex % matches.length) + matches.length) % matches.length;
+          selectTextMatch(editor, matches[safeIdx]);
           return true;
         },
-        replaceInMarkdown: (query: string, replacement: string, index: number) => {
-          const hay = editor?.storage.markdown.getMarkdown() ?? lastEmitted.current;
-          const q = query.toLowerCase();
-          const lower = hay.toLowerCase();
-          let from = 0;
-          let matchStart = -1;
-          for (let i = 0; i <= index; i++) {
-            matchStart = lower.indexOf(q, from);
-            if (matchStart === -1) return null;
-            from = matchStart + Math.max(1, q.length);
-          }
-          const next =
-            hay.slice(0, matchStart) + replacement + hay.slice(matchStart + query.length);
-          return next;
+        replaceMatchAt: (query: string, replacement: string, matchIndex: number) => {
+          if (!editor || !query) return false;
+          const matches = collectTextMatches(editor.state.doc, query);
+          if (matches.length === 0) return false;
+          const safeIdx = ((matchIndex % matches.length) + matches.length) % matches.length;
+          replaceTextMatch(editor, matches[safeIdx], replacement);
+          return true;
         },
-        replaceAllInMarkdown: (query: string, replacement: string) => {
-          const hay = editor?.storage.markdown.getMarkdown() ?? lastEmitted.current;
-          const re = new RegExp(escapeRegExp(query), "gi");
-          return hay.replace(re, replacement);
+        replaceAllMatches: (query: string, replacement: string) => {
+          if (!editor || !query) return;
+          replaceAllTextMatches(editor, query, replacement);
         },
         scrollToHeading: (text: string) => {
           if (!editor) return;

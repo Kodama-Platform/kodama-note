@@ -14,6 +14,7 @@ import {
   ArrowRight,
   Check,
   Copy,
+  FileCode2,
   Focus,
   Monitor,
   Moon,
@@ -120,6 +121,10 @@ export function CommandPalette() {
             </CommandItem>
             <CommandItem onSelect={run(() => dispatchEditorEvent("kodama:toggle-focus"))}>
               <Focus className="h-4 w-4" /> Toggle focus mode
+            </CommandItem>
+            <CommandItem onSelect={run(() => dispatchEditorEvent("kodama:toggle-markdown-view"))}>
+              <FileCode2 className="h-4 w-4" /> Toggle markdown view
+              <CommandShortcut>⌘⇧M</CommandShortcut>
             </CommandItem>
             <CommandItem onSelect={run(() => dispatchEditorEvent("kodama:export"))}>
               <ArrowRight className="h-4 w-4" /> Export note

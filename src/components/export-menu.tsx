@@ -79,28 +79,33 @@ function crc32(data: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-export function ExportMenu({
+function MenuItem({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      role="menuitem"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light text-foreground transition-colors hover:bg-primary/5"
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+export function useExportActions({
   slug,
   workbook,
   activeSheetTitle,
   getActiveText,
+  onDone,
 }: {
   slug: string;
   workbook: WorkbookPayload;
   activeSheetTitle: string;
   getActiveText: () => string;
+  onDone?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
   const multiSheet = workbook.sheets.length > 1;
-
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
 
   const triggerDownload = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -111,7 +116,7 @@ export function ExportMenu({
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    setOpen(false);
+    onDone?.();
   };
 
   const downloadActive = (ext: "md" | "txt") => {
@@ -139,9 +144,73 @@ export function ExportMenu({
   };
 
   const print = () => {
-    setOpen(false);
+    onDone?.();
     setTimeout(() => window.print(), 50);
   };
+
+  const items = [
+    {
+      icon: <FileCode2 className="h-3.5 w-3.5" />,
+      label: multiSheet ? "Active sheet (.md)" : "Markdown (.md)",
+      onClick: () => downloadActive("md"),
+    },
+    {
+      icon: <FileText className="h-3.5 w-3.5" />,
+      label: multiSheet ? "Active sheet (.txt)" : "Plain text (.txt)",
+      onClick: () => downloadActive("txt"),
+    },
+    ...(multiSheet
+      ? [
+          {
+            icon: <FileCode2 className="h-3.5 w-3.5" />,
+            label: "All sheets (.md)",
+            onClick: downloadAllSheets,
+          },
+          {
+            icon: <FileArchive className="h-3.5 w-3.5" />,
+            label: "All sheets (.zip)",
+            onClick: downloadZip,
+          },
+        ]
+      : []),
+    {
+      icon: <Printer className="h-3.5 w-3.5" />,
+      label: "Print / Save as PDF",
+      onClick: print,
+    },
+  ];
+
+  return { items, multiSheet };
+}
+
+export function ExportMenu({
+  slug,
+  workbook,
+  activeSheetTitle,
+  getActiveText,
+}: {
+  slug: string;
+  workbook: WorkbookPayload;
+  activeSheetTitle: string;
+  getActiveText: () => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const { items } = useExportActions({
+    slug,
+    workbook,
+    activeSheetTitle,
+    getActiveText,
+    onDone: () => setOpen(false),
+  });
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   return (
     <div className="relative" ref={ref}>
@@ -160,46 +229,11 @@ export function ExportMenu({
           role="menu"
           className="absolute right-0 z-40 mt-1.5 w-52 overflow-hidden rounded-xl border border-border/80 bg-card/95 p-1 shadow-card backdrop-blur-md"
         >
-          <MenuItem
-            icon={<FileCode2 className="h-3.5 w-3.5" />}
-            label={multiSheet ? "Active sheet (.md)" : "Markdown (.md)"}
-            onClick={() => downloadActive("md")}
-          />
-          <MenuItem
-            icon={<FileText className="h-3.5 w-3.5" />}
-            label={multiSheet ? "Active sheet (.txt)" : "Plain text (.txt)"}
-            onClick={() => downloadActive("txt")}
-          />
-          {multiSheet && (
-            <>
-              <MenuItem
-                icon={<FileCode2 className="h-3.5 w-3.5" />}
-                label="All sheets (.md)"
-                onClick={downloadAllSheets}
-              />
-              <MenuItem
-                icon={<FileArchive className="h-3.5 w-3.5" />}
-                label="All sheets (.zip)"
-                onClick={downloadZip}
-              />
-            </>
-          )}
-          <MenuItem icon={<Printer className="h-3.5 w-3.5" />} label="Print / Save as PDF" onClick={print} />
+          {items.map((item) => (
+            <MenuItem key={item.label} icon={item.icon} label={item.label} onClick={item.onClick} />
+          ))}
         </div>
       )}
     </div>
-  );
-}
-
-function MenuItem({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
-  return (
-    <button
-      role="menuitem"
-      onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light text-foreground transition-colors hover:bg-primary/5"
-    >
-      {icon}
-      {label}
-    </button>
   );
 }

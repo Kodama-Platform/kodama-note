@@ -1,5 +1,10 @@
 const HEADING_SCROLL_GAP_PX = 12;
 
+export function getEditorScrollContainer(): HTMLElement | null {
+  const el = document.querySelector('[data-editor-scroll="true"]');
+  return el instanceof HTMLElement ? el : null;
+}
+
 export function getEditorHeaderOffset(): number {
   const header = document.querySelector('header[data-editor-chrome="true"]');
   const tabs = document.querySelector('[data-editor-tabs="true"]');
@@ -24,6 +29,14 @@ export function scrollElementBelowHeader(
   element: HTMLElement,
   behavior: ScrollBehavior = "smooth",
 ) {
+  const container = getEditorScrollContainer();
+  if (container) {
+    const containerTop = container.getBoundingClientRect().top;
+    const elementTop = element.getBoundingClientRect().top;
+    const top = container.scrollTop + (elementTop - containerTop) - HEADING_SCROLL_GAP_PX;
+    container.scrollTo({ top: Math.max(0, top), behavior });
+    return;
+  }
   scrollViewportYToHeaderOffset(element.getBoundingClientRect().top, behavior);
 }
 

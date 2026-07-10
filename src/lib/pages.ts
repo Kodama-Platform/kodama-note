@@ -6,6 +6,7 @@
 // - edit_token gates writes; view_token is stored server-side but unused client-side.
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeKdfParams } from "@/lib/crypto";
+import { VERSIONING_ENABLED } from "@/lib/features";
 import { assertNoSecretsInPayload } from "@/lib/server-payload";
 
 // Generated Supabase types don't yet include our custom RPCs — call untyped.
@@ -82,17 +83,18 @@ async function hydratePageRow(
   row: Record<string, unknown>,
   slug: string,
 ): Promise<Extract<GetPageResult, { exists: true }>> {
-  let versions: VersionRow[] = [];
-  try {
-    versions = await listVersions(slug);
-  } catch {
-    /* fall back to page row ciphertext */
+  let ciphertext = row.ciphertext as string;
+  let iv = row.iv as string;
+
+  if (VERSIONING_ENABLED) {
+    let versions: VersionRow[] = [];
+    try {
+      versions = await listVersions(slug);
+    } catch {
+      /* fall back to page row ciphertext */
+    }
+    ({ ciphertext, iv } = latestVersionSnapshot(ciphertext, iv, versions));
   }
-  const { ciphertext, iv } = latestVersionSnapshot(
-    row.ciphertext as string,
-    row.iv as string,
-    versions,
-  );
 
   return {
     exists: true,
@@ -161,6 +163,16 @@ export async function appendVersion(args: {
   });
   if (error) throw new Error(error.message);
   return data as { id: string; created_at: string };
+}
+
+/** Save encrypted page content. Uses append RPC until in-place update is available. */
+export async function savePage(args: {
+  slug: string;
+  edit_token: string;
+  ciphertext: string;
+  iv: string;
+}): Promise<{ id: string; created_at: string }> {
+  return appendVersion(args);
 }
 
 export async function updateExpiry(args: {

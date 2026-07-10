@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Flame, Loader2, Lock, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -21,7 +21,8 @@ import {
   unlockErrorMessage,
   type KdfParams,
 } from "@/lib/crypto";
-import { BURN_MODES, createPage, getPage, type BurnMode } from "@/lib/pages";
+import { BURN_MODES, createPage, getPage, type BurnMode, type GetPageResult } from "@/lib/pages";
+import { pageQueryKey, type ExistingPage } from "@/lib/page-query";
 import {
   createEmptyWorkbook,
   parseWorkbook,
@@ -102,29 +103,46 @@ function SlugPage() {
   return <PageGate slug={parsed.data} />;
 }
 
+class PageNotFoundError extends Error {
+  constructor() {
+    super("PAGE_NOT_FOUND");
+    this.name = "PageNotFoundError";
+  }
+}
+
+async function resolveExistingPage(
+  data: GetPageResult | undefined,
+  fetchPage: () => Promise<{ data: GetPageResult | undefined }>,
+): Promise<ExistingPage> {
+  let result = data;
+  if (!result) {
+    const fetched = await fetchPage();
+    result = fetched.data;
+  }
+  if (!result?.exists) throw new PageNotFoundError();
+  return result;
+}
+
 function PageGate({ slug }: { slug: string }) {
   const { code } = Route.useSearch();
   const editToken = useEditToken(slug);
   const q = useQuery({
-    queryKey: ["page", slug],
+    queryKey: pageQueryKey(slug),
     queryFn: () => getPage(slug),
-    staleTime: 0,
+    staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
 
-  if (q.isLoading) {
-    return (
-      <GateShell>
-        <NoteCard>
-          <div className="flex items-center gap-3 text-sm font-light text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" /> Opening your place…
-          </div>
-        </NoteCard>
-      </GateShell>
-    );
-  }
+  const ensurePage = useCallback(
+    () =>
+      resolveExistingPage(q.data, async () => {
+        const result = await q.refetch();
+        return { data: result.data };
+      }),
+    [q.data, q.refetch],
+  );
 
-  if (q.error) {
+  if (q.isError && !q.data) {
     return (
       <GateShell>
         <NoteCard>
@@ -139,21 +157,19 @@ function PageGate({ slug }: { slug: string }) {
     );
   }
 
-  const data = q.data!;
-  if (!data.exists) {
+  const data = q.data;
+
+  if (data && !data.exists) {
     return <CreateGate slug={slug} onCreated={() => q.refetch()} />;
   }
+
+  const page: ExistingPage | null = data?.exists === true ? data : null;
 
   return (
     <UnlockGate
       slug={slug}
-      ciphertext={data.ciphertext}
-      salt={data.salt}
-      iv={data.iv}
-      kdfParams={data.kdf_params as KdfParams}
-      updatedAt={data.updated_at}
-      burnMode={data.burn_mode}
-      expiresAt={data.expires_at}
+      page={page}
+      ensurePage={ensurePage}
       codePassword={code}
       editToken={editToken}
     />
@@ -308,35 +324,26 @@ function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }
 
 function UnlockGate({
   slug,
-  ciphertext,
-  salt,
-  iv,
-  kdfParams,
-  updatedAt,
-  burnMode,
-  expiresAt,
+  page,
+  ensurePage,
   codePassword,
   editToken,
 }: {
   slug: string;
-  ciphertext: string;
-  salt: string;
-  iv: string;
-  kdfParams: KdfParams;
-  updatedAt: string;
-  burnMode: BurnMode;
-  expiresAt: string | null;
+  page: ExistingPage | null;
+  ensurePage: () => Promise<ExistingPage>;
   codePassword?: string;
   editToken: string | null;
 }) {
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(!!codePassword);
-  const [unlocked, setUnlocked] = useState<{ key: CryptoKey; plaintext: string } | null>(null);
+  const [unlocked, setUnlocked] = useState<{ key: CryptoKey; plaintext: string; updatedAt: string } | null>(null);
 
   const unlockWithPassword = async (password: string) => {
-    const key = await deriveKey(password, salt, kdfParams);
-    const plaintext = await decrypt(key, ciphertext, iv);
-    setUnlocked({ key, plaintext });
+    const loaded = page ?? (await ensurePage());
+    const key = await deriveKey(password, loaded.salt, loaded.kdf_params as KdfParams);
+    const plaintext = await decrypt(key, loaded.ciphertext, loaded.iv);
+    setUnlocked({ key, plaintext, updatedAt: loaded.updated_at });
   };
 
   useEffect(() => {
@@ -348,7 +355,9 @@ function UnlockGate({
         await unlockWithPassword(codePassword);
         stripCodeFromUrl();
       } catch (err) {
-        if (!cancelled) toast.error(unlockErrorMessage(err));
+        if (cancelled) return;
+        if (err instanceof PageNotFoundError) return;
+        toast.error(unlockErrorMessage(err));
       } finally {
         if (!cancelled) setBusy(false);
       }
@@ -357,7 +366,7 @@ function UnlockGate({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [codePassword, slug]);
+  }, [codePassword, slug, page]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -366,6 +375,7 @@ function UnlockGate({
     try {
       await unlockWithPassword(pw);
     } catch (err) {
+      if (err instanceof PageNotFoundError) return;
       toast.error(unlockErrorMessage(err));
     } finally {
       setBusy(false);
@@ -373,39 +383,30 @@ function UnlockGate({
   };
 
   const expiryNote = useMemo(() => {
-    if (burnMode === "after_read") return "This page will burn after the next read.";
-    if (expiresAt) return `Expires ${new Date(expiresAt).toLocaleString()}.`;
+    if (!page) return null;
+    if (page.burn_mode === "after_read") return "This page will burn after the next read.";
+    if (page.expires_at) return `Expires ${new Date(page.expires_at).toLocaleString()}.`;
     return null;
-  }, [burnMode, expiresAt]);
+  }, [page]);
 
   if (unlocked) {
     const workbook = parseWorkbook(unlocked.plaintext);
     const preferred =
       getSheetIdFromHash() ?? readLastOpenedSheet(slug) ?? workbook.primary_sheet_id;
     const initialActiveSheetId = resolveInitialSheetId(workbook, preferred);
+    const burnMode = page?.burn_mode ?? "never";
+    const expiresAt = page?.expires_at ?? null;
     return (
       <Editor
         slug={slug}
         initialWorkbook={workbook}
         initialActiveSheetId={initialActiveSheetId}
-        initialUpdatedAt={updatedAt}
+        initialUpdatedAt={unlocked.updatedAt}
         cryptoKey={unlocked.key}
         editToken={editToken}
         burnMode={burnMode}
         expiresAt={expiresAt}
       />
-    );
-  }
-
-  if (codePassword && busy) {
-    return (
-      <GateShell>
-        <NoteCard>
-          <div className="flex items-center gap-3 text-sm font-light text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" /> Unlocking from link…
-          </div>
-        </NoteCard>
-      </GateShell>
     );
   }
 
@@ -425,14 +426,14 @@ function UnlockGate({
           </p>
         )}
         <form onSubmit={submit} className="mt-8 space-y-4">
-          <PasswordInput label="Password" value={pw} onChange={setPw} autoFocus />
+          <PasswordInput label="Password" value={pw} onChange={setPw} autoFocus={!codePassword} />
           <button
             type="submit"
-            disabled={busy || !pw}
+            disabled={busy || (!pw && !codePassword)}
             className="btn-moss mt-2 flex h-12 w-full items-center justify-center gap-2 disabled:opacity-60"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-            {busy ? "Unlocking…" : "Unlock"}
+            {busy ? (codePassword ? "Unlocking from link…" : "Unlocking…") : "Unlock"}
           </button>
         </form>
       </NoteCard>

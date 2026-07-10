@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { CornerDownLeft, Leaf } from "lucide-react";
 import { toast } from "sonner";
 
-import { isSlugAvailable } from "@/lib/pages";
+import { pageQueryKey } from "@/lib/page-query";
+import { getPage } from "@/lib/pages";
 import { normalizeSlug, slugSchema } from "@/lib/slug";
 
 const PLACEHOLDERS = [
@@ -30,6 +32,7 @@ function slugToTitle(slug: string): string {
 
 export function PlaceInput({ inputId = "page-name" }: { inputId?: string }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const requestId = useRef(0);
   const [value, setValue] = useState("");
@@ -85,9 +88,10 @@ export function PlaceInput({ inputId = "page-name" }: { inputId?: string }) {
     const current = ++requestId.current;
     const timer = window.setTimeout(async () => {
       try {
-        const available = await isSlugAvailable(parsed.data);
+        const result = await getPage(parsed.data);
+        queryClient.setQueryData(pageQueryKey(parsed.data), result);
         if (current !== requestId.current) return;
-        setStatus(available ? "available" : "taken");
+        setStatus(result.exists ? "taken" : "available");
       } catch {
         if (current !== requestId.current) return;
         setStatus("error");
@@ -95,7 +99,7 @@ export function PlaceInput({ inputId = "page-name" }: { inputId?: string }) {
     }, 400);
 
     return () => window.clearTimeout(timer);
-  }, [slug]);
+  }, [slug, queryClient]);
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
@@ -107,6 +111,10 @@ export function PlaceInput({ inputId = "page-name" }: { inputId?: string }) {
     }
     if (pending) return;
     setPending(true);
+    void queryClient.prefetchQuery({
+      queryKey: pageQueryKey(parsed.data),
+      queryFn: () => getPage(parsed.data),
+    });
     navigate({ to: "/$slug", params: { slug: parsed.data } });
   };
 

@@ -34,7 +34,7 @@ export function Outline({
   return (
     <aside
       data-editor-outline="true"
-      className="sticky top-14 z-10 hidden max-h-[calc(100dvh-3.5rem)] w-56 shrink-0 self-start overflow-y-auto border-r border-border/60 pr-4 sm:top-16 sm:max-h-[calc(100dvh-4rem)] md:block lg:top-[72px] lg:max-h-[calc(100dvh-4.5rem)]"
+      className="hidden h-full min-h-0 w-56 shrink-0 self-stretch overflow-y-auto border-r border-border/60 pr-4 md:block"
     >
       <div className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-clay">
         <ListTree className="h-3 w-3" /> Outline

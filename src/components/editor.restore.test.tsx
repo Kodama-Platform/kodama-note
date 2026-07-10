@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { VERSIONING_ENABLED } from "@/lib/features";
+
+const describeVersioning = VERSIONING_ENABLED ? describe : describe.skip;
 
 const appendCalls: Array<{
   slug: string;
@@ -81,9 +84,24 @@ vi.mock("@/components/rich-editor", () => {
           onMarkdownChange(s);
         },
         focus: () => {},
-        findInDocument: () => false,
-        replaceInMarkdown: () => null,
-        replaceAllInMarkdown: (_q: string, r: string) => value.replace(/./g, r),
+        countFindMatches: (q: string) => {
+          if (!q) return 0;
+          const lower = value.toLowerCase();
+          const hay = q.toLowerCase();
+          let count = 0;
+          let i = lower.indexOf(hay);
+          while (i !== -1) {
+            count += 1;
+            i = lower.indexOf(hay, i + Math.max(1, hay.length));
+          }
+          return count;
+        },
+        findMatchAt: () => false,
+        replaceMatchAt: () => false,
+        replaceAllMatches: (_q: string, r: string) => {
+          setValue(r);
+          onMarkdownChange(r);
+        },
         scrollToHeading: () => {},
         insertImageFromFile: async () => {},
       }));
@@ -126,7 +144,7 @@ beforeEach(() => {
   });
 });
 
-describe("Editor — restoreVersion is strictly append-only", () => {
+describeVersioning("Editor — restoreVersion is strictly append-only", () => {
   it("appends a new encrypted snapshot when restoring from history and never updates the previous one", async () => {
     const workbook = migrateLegacyMarkdown("current plaintext");
     render(

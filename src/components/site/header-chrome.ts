@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 
 export const HEADER_INNER =
-  "mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-4 sm:h-16 sm:gap-3 sm:px-6 lg:h-[72px] lg:px-10";
+  "mx-auto flex h-12 max-w-7xl items-center justify-between gap-2 px-3 sm:h-16 sm:gap-3 sm:px-6 lg:h-[72px] lg:px-10";
 
-export const HEADER_OFFSET = "pt-14 sm:pt-16 lg:pt-[72px]";
+export const HEADER_OFFSET = "pt-12 sm:pt-16 lg:pt-[72px]";
 
 export function useHeaderScrolled(threshold = 20) {
   const [scrolled, setScrolled] = useState(false);
@@ -35,5 +35,5 @@ export function headerLogoMarkClass() {
 }
 
 export function headerLogoTextClass() {
-  return "truncate font-display text-base tracking-tight text-foreground sm:text-lg lg:text-xl";
+  return "min-w-0 truncate font-display text-sm tracking-tight text-foreground sm:text-lg lg:text-xl";
 }

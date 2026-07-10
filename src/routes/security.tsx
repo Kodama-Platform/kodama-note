@@ -90,7 +90,7 @@ function SecurityPage() {
                 <li>IV: {CIPHER_SPEC.ivBytes} random bytes (per encryption)</li>
                 <li>API: {CIPHER_SPEC.api}</li>
                 <li>Attachments: same scheme, separate IVs</li>
-                <li>Version history: each version is a new ciphertext + IV</li>
+                <li>Saves: fresh ciphertext + IV on each edit</li>
               </ul>
             </SpecCard>
           </div>
