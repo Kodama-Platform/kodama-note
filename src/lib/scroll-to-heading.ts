@@ -2,8 +2,16 @@ const HEADING_SCROLL_GAP_PX = 12;
 
 export function getEditorHeaderOffset(): number {
   const header = document.querySelector('header[data-editor-chrome="true"]');
+  const tabs = document.querySelector('[data-editor-tabs="true"]');
+  let offset = 0;
   if (header instanceof HTMLElement) {
-    return header.getBoundingClientRect().height + HEADING_SCROLL_GAP_PX;
+    offset += header.getBoundingClientRect().height;
+  }
+  if (tabs instanceof HTMLElement) {
+    offset += tabs.getBoundingClientRect().height;
+  }
+  if (offset > 0) {
+    return offset + HEADING_SCROLL_GAP_PX;
   }
 
   const scrollPadding = getComputedStyle(document.documentElement).scrollPaddingTop;

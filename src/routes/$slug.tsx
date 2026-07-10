@@ -11,7 +11,7 @@ import {
   type EncryptionPhase,
 } from "@/components/encryption-progress";
 import { slugSchema } from "@/lib/slug";
-import { getHashParams, stripCodeFromUrl } from "@/lib/hash-params";
+import { getHashParams, getSheetIdFromHash, stripCodeFromUrl } from "@/lib/hash-params";
 import {
   DEFAULT_KDF_PARAMS,
   decrypt,
@@ -22,6 +22,13 @@ import {
   type KdfParams,
 } from "@/lib/crypto";
 import { BURN_MODES, createPage, getPage, type BurnMode } from "@/lib/pages";
+import {
+  createEmptyWorkbook,
+  parseWorkbook,
+  readLastOpenedSheet,
+  resolveInitialSheetId,
+  serializeWorkbook,
+} from "@/lib/workbook";
 
 type SlugSearch = { code?: string };
 
@@ -182,7 +189,7 @@ function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }
       setEncryptPhase("deriving");
       const key = await deriveKey(pw, salt, DEFAULT_KDF_PARAMS);
       setEncryptPhase("encrypting");
-      const { ciphertext, iv } = await encrypt(key, "");
+      const { ciphertext, iv } = await encrypt(key, serializeWorkbook(createEmptyWorkbook()));
       setEncryptPhase("uploading");
       const res = await createPage({
         slug,
@@ -219,10 +226,12 @@ function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }
   };
 
   if (created) {
+    const workbook = createEmptyWorkbook();
     return (
       <Editor
         slug={slug}
-        initialText=""
+        initialWorkbook={workbook}
+        initialActiveSheetId={workbook.primary_sheet_id}
         initialUpdatedAt={created.updatedAt}
         cryptoKey={created.key}
         editToken={created.editToken}
@@ -370,10 +379,15 @@ function UnlockGate({
   }, [burnMode, expiresAt]);
 
   if (unlocked) {
+    const workbook = parseWorkbook(unlocked.plaintext);
+    const preferred =
+      getSheetIdFromHash() ?? readLastOpenedSheet(slug) ?? workbook.primary_sheet_id;
+    const initialActiveSheetId = resolveInitialSheetId(workbook, preferred);
     return (
       <Editor
         slug={slug}
-        initialText={unlocked.plaintext}
+        initialWorkbook={workbook}
+        initialActiveSheetId={initialActiveSheetId}
         initialUpdatedAt={updatedAt}
         cryptoKey={unlocked.key}
         editToken={editToken}

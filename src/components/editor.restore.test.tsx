@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
-// --- Mocks ---------------------------------------------------------------
-// Capture every call made against the pages API so we can assert the editor
-// only ever *appends* version snapshots and never tries to mutate one.
 const appendCalls: Array<{
   slug: string;
   edit_token: string;
@@ -39,7 +36,6 @@ vi.mock("@/lib/pages", async (importOriginal) => {
   };
 });
 
-// Deterministic, fast "crypto" that lets us assert against produced ciphertext.
 vi.mock("@/lib/crypto", () => ({
   encrypt: vi.fn(async (_key: unknown, plaintext: string) => ({
     ciphertext: `CT(${plaintext})`,
@@ -110,10 +106,10 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-// --- Test ----------------------------------------------------------------
 import { Editor } from "@/components/editor";
 import { appendVersion } from "@/lib/pages";
 import { toast } from "sonner";
+import { migrateLegacyMarkdown, parseWorkbook } from "@/lib/workbook";
 
 const fakeKey = {} as CryptoKey;
 
@@ -121,14 +117,23 @@ beforeEach(() => {
   appendCalls.length = 0;
   vi.mocked(appendVersion).mockClear();
   vi.mocked(toast.success).mockClear();
+  let n = 0;
+  vi.stubGlobal("crypto", {
+    randomUUID: () => {
+      n += 1;
+      return `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    },
+  });
 });
 
 describe("Editor — restoreVersion is strictly append-only", () => {
   it("appends a new encrypted snapshot when restoring from history and never updates the previous one", async () => {
+    const workbook = migrateLegacyMarkdown("current plaintext");
     render(
       <Editor
         slug="travel-plans"
-        initialText="current plaintext"
+        initialWorkbook={workbook}
+        initialActiveSheetId={workbook.primary_sheet_id}
         initialUpdatedAt={new Date().toISOString()}
         cryptoKey={fakeKey}
         editToken="edit-token-123"
@@ -137,39 +142,36 @@ describe("Editor — restoreVersion is strictly append-only", () => {
       />,
     );
 
-    // Open the version history modal
     fireEvent.click(screen.getByRole("button", { name: /history/i }));
 
-    // Wait for the listed version to appear, then preview it
     const versionBtn = await screen.findByRole("button", { name: /version 1/i });
     await act(async () => {
       fireEvent.click(versionBtn);
     });
 
-    // Click "Restore this version"
     const restoreBtn = await screen.findByRole("button", { name: /restore this version/i });
     await act(async () => {
       fireEvent.click(restoreBtn);
     });
 
-    // appendVersion must have been called exactly once with the restored content
     await waitFor(() => {
       expect(appendVersion).toHaveBeenCalledTimes(1);
     });
+
+    const restored = parseWorkbook("old plaintext from history");
+    const expectedMarkdown = restored.sheets[0].markdown;
 
     expect(appendCalls).toHaveLength(1);
     expect(appendCalls[0]).toMatchObject({
       slug: "travel-plans",
       edit_token: "edit-token-123",
-      ciphertext: "CT(old plaintext from history)",
       iv: "IV",
     });
+    expect(appendCalls[0].ciphertext).toContain(expectedMarkdown);
+    expect(appendCalls[0].ciphertext).toMatch(/^CT\(\{/);
 
-    // Confirms the version row identifier was never echoed back as an "update"
-    // target — restoreVersion has no notion of editing an existing snapshot.
     expect(JSON.stringify(appendCalls[0])).not.toContain("v-old");
 
-    // Friendly toast tells the user which version was restored
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith(
         expect.stringMatching(/Restored to version 1/i),
@@ -178,11 +180,12 @@ describe("Editor — restoreVersion is strictly append-only", () => {
   });
 
   it("appends even when the restored text matches the latest saved text (force=true)", async () => {
-    // initialText is the same as what version-1 decrypts to in this test.
+    const workbook = migrateLegacyMarkdown("old plaintext from history");
     render(
       <Editor
         slug="notes"
-        initialText="old plaintext from history"
+        initialWorkbook={workbook}
+        initialActiveSheetId={workbook.primary_sheet_id}
         initialUpdatedAt={new Date().toISOString()}
         cryptoKey={fakeKey}
         editToken="edit-token-xyz"
@@ -201,8 +204,6 @@ describe("Editor — restoreVersion is strictly append-only", () => {
       fireEvent.click(restoreBtn);
     });
 
-    // Even though content is unchanged, the editor still appends a new snapshot
-    // — restore must NEVER be a no-op that could be confused with an in-place edit.
     await waitFor(() => {
       expect(appendVersion).toHaveBeenCalledTimes(1);
     });

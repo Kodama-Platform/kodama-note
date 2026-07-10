@@ -33,15 +33,33 @@ import { FindReplace } from "@/components/find-replace";
 import { Outline } from "@/components/outline";
 import { RichEditor, type RichEditorHandle } from "@/components/rich-editor";
 import { DonateRibbon, useVisitCount } from "@/components/donate-ribbon";
+import { SheetTabBar } from "@/components/sheet-tab-bar";
 import { encrypt } from "@/lib/crypto";
+import { setSheetHash } from "@/lib/hash-params";
 import { appendVersion, BURN_MODES, updateExpiry, type BurnMode } from "@/lib/pages";
+import {
+  addSheet,
+  deleteSheet,
+  getActiveSheetMarkdown,
+  getOrderedSheets,
+  parseWorkbook,
+  pickAdjacentSheetId,
+  renameSheet,
+  reorderSheets,
+  serializeWorkbook,
+  updateActiveSheetMarkdown,
+  WorkbookError,
+  writeLastOpenedSheet,
+  type WorkbookPayload,
+} from "@/lib/workbook";
 
 
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 
 export function Editor({
   slug,
-  initialText,
+  initialWorkbook,
+  initialActiveSheetId,
   initialUpdatedAt,
   cryptoKey,
   editToken,
@@ -49,7 +67,8 @@ export function Editor({
   expiresAt: initialExpiresAt,
 }: {
   slug: string;
-  initialText: string;
+  initialWorkbook: WorkbookPayload;
+  initialActiveSheetId: string;
   initialUpdatedAt: string;
   cryptoKey: CryptoKey;
   editToken: string | null;
@@ -57,7 +76,9 @@ export function Editor({
   expiresAt: string | null;
 }) {
   const canSave = !!editToken;
-  const [text, setText] = useState(initialText);
+  const [workbook, setWorkbook] = useState(initialWorkbook);
+  const [activeSheetId, setActiveSheetId] = useState(initialActiveSheetId);
+  const [switchingSheet, setSwitchingSheet] = useState(false);
   const [updatedAt, setUpdatedAt] = useState(initialUpdatedAt);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [burnMode, setBurnMode] = useState<BurnMode>(initialBurnMode);
@@ -67,11 +88,16 @@ export function Editor({
   const [focus, setFocus] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [findMode, setFindMode] = useState<"find" | "replace">("find");
-  const lastSavedRef = useRef(initialText);
+  const initialSerialized = useMemo(() => serializeWorkbook(initialWorkbook), [initialWorkbook]);
+  const lastSavedRef = useRef(initialSerialized);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const richEditorRef = useRef<RichEditorHandle | null>(null);
+  const activeMarkdown = useMemo(
+    () => getActiveSheetMarkdown(workbook, activeSheetId),
+    [workbook, activeSheetId],
+  );
   const initialWordsRef = useRef<number>(
-    initialText.trim() ? initialText.trim().split(/\s+/).length : 0,
+    activeMarkdown.trim() ? activeMarkdown.trim().split(/\s+/).length : 0,
   );
   const visits = useVisitCount(slug);
   const headerScrolled = useHeaderScrolled();
@@ -99,16 +125,37 @@ export function Editor({
     [burnMode, editToken, slug],
   );
 
+  const serializedWorkbook = useMemo(() => {
+    try {
+      return serializeWorkbook(workbook);
+    } catch {
+      return lastSavedRef.current;
+    }
+  }, [workbook]);
+
   const save = useCallback(
-    async (opts?: { force?: boolean; text?: string }) => {
+    async (opts?: { force?: boolean; workbook?: WorkbookPayload }) => {
       if (!editToken) return;
-      const payload = opts?.text ?? text;
-      if (!opts?.force && payload === lastSavedRef.current) return;
+      const payload = opts?.workbook ?? workbook;
+      let plaintext: string;
+      try {
+        plaintext = serializeWorkbook(payload);
+      } catch (e) {
+        setStatus("error");
+        const code = e instanceof WorkbookError ? e.code : (e as Error).message;
+        toast.error(
+          code === "workbook_too_large" || code === "sheet_too_large"
+            ? "Workbook is too large to save"
+            : (e as Error).message,
+        );
+        return;
+      }
+      if (!opts?.force && plaintext === lastSavedRef.current) return;
       setStatus("saving");
       try {
-        const { ciphertext, iv } = await encrypt(cryptoKey, payload);
+        const { ciphertext, iv } = await encrypt(cryptoKey, plaintext);
         const res = await appendVersion({ slug, edit_token: editToken, ciphertext, iv });
-        lastSavedRef.current = payload;
+        lastSavedRef.current = plaintext;
         setUpdatedAt(res.created_at);
         setStatus("saved");
       } catch (e) {
@@ -116,32 +163,103 @@ export function Editor({
         toast.error((e as Error).message);
       }
     },
-    [cryptoKey, editToken, slug, text],
+    [cryptoKey, editToken, slug, workbook],
   );
 
   const restoreVersion = useCallback(
     async (plaintext: string, label?: string) => {
-      // Cancel any pending debounced save so we don't double-write.
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
-      setText(plaintext);
-      richEditorRef.current?.setMarkdown(plaintext);
-      // Force a new snapshot even if the restored text matches the latest one,
-      // so version history stays strictly append-only.
-      await save({ force: true, text: plaintext });
+      const restored = parseWorkbook(plaintext);
+      const sheetId = restored.primary_sheet_id;
+      setWorkbook(restored);
+      setActiveSheetId(sheetId);
+      writeLastOpenedSheet(slug, sheetId);
+      setSheetHash(sheetId);
+      richEditorRef.current?.setMarkdown(getActiveSheetMarkdown(restored, sheetId));
+      await save({ force: true, workbook: restored });
       toast.success(label ? `Restored to ${label}` : "Restored as a new version");
     },
-    [save],
+    [save, slug],
   );
+
+  const switchSheet = useCallback(
+    async (nextSheetId: string, wb: WorkbookPayload = workbook) => {
+      if (nextSheetId === activeSheetId || switchingSheet) return;
+      setSwitchingSheet(true);
+      try {
+        let serialized: string;
+        try {
+          serialized = serializeWorkbook(workbook);
+        } catch {
+          serialized = lastSavedRef.current;
+        }
+        if (canSave && serialized !== lastSavedRef.current) {
+          await save();
+        }
+        setActiveSheetId(nextSheetId);
+        writeLastOpenedSheet(slug, nextSheetId);
+        setSheetHash(nextSheetId);
+        const nextMarkdown = getActiveSheetMarkdown(wb, nextSheetId);
+        richEditorRef.current?.setMarkdown(nextMarkdown);
+      } finally {
+        setSwitchingSheet(false);
+      }
+    },
+    [activeSheetId, canSave, save, slug, switchingSheet, workbook],
+  );
+
+  const handleMarkdownChange = useCallback(
+    (markdown: string) => {
+      setWorkbook((prev) => updateActiveSheetMarkdown(prev, activeSheetId, markdown));
+    },
+    [activeSheetId],
+  );
+
+  const handleAddSheet = useCallback(() => {
+    try {
+      const next = addSheet(workbook);
+      const newSheet = getOrderedSheets(next).at(-1)!;
+      setWorkbook(next);
+      void switchSheet(newSheet.sheet_id, next);
+    } catch (e) {
+      toast.error(e instanceof WorkbookError ? "Maximum sheets reached" : (e as Error).message);
+    }
+  }, [switchSheet, workbook]);
+
+  const handleRenameSheet = useCallback((sheetId: string, title: string) => {
+    setWorkbook((prev) => renameSheet(prev, sheetId, title));
+  }, []);
+
+  const handleDeleteSheet = useCallback(
+    (sheetId: string) => {
+      try {
+        const focusId =
+          sheetId === activeSheetId ? pickAdjacentSheetId(workbook, sheetId) : activeSheetId;
+        const next = deleteSheet(workbook, sheetId);
+        setWorkbook(next);
+        if (sheetId === activeSheetId) {
+          void switchSheet(focusId, next);
+        }
+      } catch (e) {
+        toast.error((e as Error).message);
+      }
+    },
+    [activeSheetId, switchSheet, workbook],
+  );
+
+  const handleReorderSheets = useCallback((orderedIds: string[]) => {
+    setWorkbook((prev) => reorderSheets(prev, orderedIds));
+  }, []);
 
 
 
   // Debounced auto-save
   useEffect(() => {
     if (!canSave) return;
-    if (text === lastSavedRef.current) return;
+    if (serializedWorkbook === lastSavedRef.current) return;
     setStatus("dirty");
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
@@ -150,7 +268,7 @@ export function Editor({
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [text, canSave, save]);
+  }, [serializedWorkbook, canSave, save]);
 
   // Warn before unload if dirty
   useEffect(() => {
@@ -200,8 +318,11 @@ export function Editor({
     };
   }, [save, findOpen, focus, slug]);
 
-  const charCount = text.length;
-  const wordCount = useMemo(() => (text.trim() ? text.trim().split(/\s+/).length : 0), [text]);
+  const charCount = activeMarkdown.length;
+  const wordCount = useMemo(
+    () => (activeMarkdown.trim() ? activeMarkdown.trim().split(/\s+/).length : 0),
+    [activeMarkdown],
+  );
   const sessionWords = Math.max(0, wordCount - initialWordsRef.current);
   const readingMinutes = Math.max(1, Math.round(wordCount / 200));
 
@@ -252,7 +373,14 @@ export function Editor({
               <Focus className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Focus</span>
             </button>
-            <ExportMenu slug={slug} getText={() => richEditorRef.current?.getMarkdown() ?? text} />
+            <ExportMenu
+              slug={slug}
+              workbook={workbook}
+              activeSheetTitle={
+                workbook.sheets.find((s) => s.sheet_id === activeSheetId)?.title ?? "sheet"
+              }
+              getActiveText={() => richEditorRef.current?.getMarkdown() ?? activeMarkdown}
+            />
             <VersionHistory
               slug={slug}
               cryptoKey={cryptoKey}
@@ -346,15 +474,27 @@ export function Editor({
       <main className="mx-auto flex w-full max-w-7xl flex-1 items-start px-4 py-6 sm:px-6 sm:py-10 lg:px-10">
         {!focus && (
           <Outline
-            text={text}
+            text={activeMarkdown}
             onJumpToHeading={(heading) => richEditorRef.current?.scrollToHeading(heading)}
           />
         )}
         <div className="mx-auto flex w-full max-w-[800px] flex-1 flex-col">
+          <SheetTabBar
+            sheets={workbook.sheets}
+            activeSheetId={activeSheetId}
+            canEdit={canSave}
+            switching={switchingSheet || status === "saving"}
+            onSelect={(id) => void switchSheet(id)}
+            onAdd={handleAddSheet}
+            onRename={handleRenameSheet}
+            onDelete={handleDeleteSheet}
+            onReorder={handleReorderSheets}
+          />
           <RichEditor
+            key={activeSheetId}
             ref={richEditorRef}
-            initialContent={initialText}
-            onMarkdownChange={setText}
+            initialContent={activeMarkdown}
+            onMarkdownChange={handleMarkdownChange}
             slug={slug}
             cryptoKey={cryptoKey}
             editToken={editToken}
@@ -363,7 +503,12 @@ export function Editor({
 
           {!focus && (
             <div className="mt-8" data-editor-attachments="true">
-              <AttachmentsPanel slug={slug} cryptoKey={cryptoKey} editToken={editToken} />
+              <AttachmentsPanel
+                slug={slug}
+                cryptoKey={cryptoKey}
+                editToken={editToken}
+                workbook={workbook}
+              />
             </div>
           )}
         </div>
@@ -403,9 +548,9 @@ export function Editor({
 
       {findOpen && (
         <FindReplace
-          text={text}
+          text={activeMarkdown}
           onReplace={(next) => {
-            setText(next);
+            handleMarkdownChange(next);
             richEditorRef.current?.setMarkdown(next);
           }}
           onClose={() => setFindOpen(false)}

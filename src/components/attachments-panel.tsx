@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileText, Image as ImageIcon, Loader2, Paperclip, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,6 +18,11 @@ import {
   uploadAttachmentBlob,
   type AttachmentRow,
 } from "@/lib/pages";
+import {
+  collectWorkbookAttachmentIds,
+  WORKBOOK_LIMITS,
+  type WorkbookPayload,
+} from "@/lib/workbook";
 
 type DecryptedAttachment = AttachmentRow & { filename: string };
 
@@ -25,15 +30,19 @@ export function AttachmentsPanel({
   slug,
   cryptoKey,
   editToken,
+  workbook,
 }: {
   slug: string;
   cryptoKey: CryptoKey;
   editToken: string | null;
+  workbook: WorkbookPayload;
 }) {
   const [items, setItems] = useState<DecryptedAttachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  const referencedIds = useMemo(() => collectWorkbookAttachmentIds(workbook), [workbook]);
 
   const refresh = async () => {
     setLoading(true);
@@ -65,6 +74,10 @@ export function AttachmentsPanel({
   const upload = async (file: File) => {
     if (!editToken) {
       toast.error("You need the edit link on this device to upload files");
+      return;
+    }
+    if (items.length >= WORKBOOK_LIMITS.maxAttachments) {
+      toast.error(`Maximum ${WORKBOOK_LIMITS.maxAttachments} attachments per workbook`);
       return;
     }
     if (file.size > 20 * 1024 * 1024) {
@@ -114,13 +127,17 @@ export function AttachmentsPanel({
     }
   };
 
+  const atLimit = items.length >= WORKBOOK_LIMITS.maxAttachments;
+
   return (
-      <div className="rounded-2xl border border-border/80 bg-card/50 p-4 backdrop-blur-sm">
+    <div className="rounded-2xl border border-border/80 bg-card/50 p-4 backdrop-blur-sm">
       <div className="flex items-center justify-between">
         <div className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-clay">
           <Paperclip className="h-3.5 w-3.5" />
           Attachments
-          <span className="font-sans normal-case tracking-normal text-muted-foreground">({items.length})</span>
+          <span className="font-sans normal-case tracking-normal text-muted-foreground">
+            ({items.length}/{WORKBOOK_LIMITS.maxAttachments})
+          </span>
         </div>
         {editToken && (
           <>
@@ -136,8 +153,9 @@ export function AttachmentsPanel({
             />
             <button
               onClick={() => fileInput.current?.click()}
-              disabled={uploading}
-              className="note-toolbar-btn !text-primary hover:!border-primary/40 hover:!bg-primary/10"
+              disabled={uploading || atLimit}
+              className="note-toolbar-btn !text-primary hover:!border-primary/40 hover:!bg-primary/10 disabled:opacity-50"
+              title={atLimit ? `Maximum ${WORKBOOK_LIMITS.maxAttachments} attachments` : undefined}
             >
               {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
               {uploading ? "Encrypting…" : "Add file"}
@@ -152,22 +170,35 @@ export function AttachmentsPanel({
         ) : items.length === 0 ? (
           <p className="text-xs text-muted-foreground">No attachments yet.</p>
         ) : (
-          items.map((a) => (
-            <button
-              key={a.id}
-              onClick={() => download(a)}
-              className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border/60 hover:bg-primary/5"
-            >
-              {a.mime.startsWith("image/") ? (
-                <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-              ) : (
-                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-              )}
-              <span className="flex-1 truncate text-sm text-foreground">{a.filename}</span>
-              <span className="text-xs text-muted-foreground">{formatSize(a.size)}</span>
-              <Download className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-            </button>
-          ))
+          items.map((a) => {
+            const orphaned = !referencedIds.has(a.id.toLowerCase());
+            return (
+              <button
+                key={a.id}
+                onClick={() => download(a)}
+                className={`group flex w-full items-center gap-3 rounded-lg border px-2 py-1.5 text-left transition-colors hover:border-border/60 hover:bg-primary/5 ${
+                  orphaned ? "border-amber-500/30 bg-amber-500/5" : "border-transparent"
+                }`}
+                title={orphaned ? "Not referenced in any sheet" : undefined}
+              >
+                {a.mime.startsWith("image/") ? (
+                  <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+                <span className="flex-1 truncate text-sm text-foreground">
+                  {a.filename}
+                  {orphaned && (
+                    <span className="ml-2 text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                      Unlinked
+                    </span>
+                  )}
+                </span>
+                <span className="text-xs text-muted-foreground">{formatSize(a.size)}</span>
+                <Download className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+              </button>
+            );
+          })
         )}
       </div>
     </div>
@@ -179,4 +210,3 @@ function formatSize(n: number) {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
-

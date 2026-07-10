@@ -227,6 +227,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         ListTabExtension,
       ],
       content: normalizeTaskListMarkdown(initialContent),
+      editable: !!editToken,
       editorProps: {
         attributes: {
           class: "tiptap reading-mode min-h-[60vh] outline-none",
@@ -306,6 +307,11 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         editorRef.current = null;
       },
     });
+
+    useEffect(() => {
+      if (!editor) return;
+      editor.setEditable(!!editToken);
+    }, [editor, editToken]);
 
     useEffect(() => {
       if (!editor) return;
