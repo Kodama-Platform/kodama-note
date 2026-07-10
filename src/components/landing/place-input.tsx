@@ -41,22 +41,37 @@ export function PlaceInput({ inputId = "page-name" }: { inputId?: string }) {
   const [pending, setPending] = useState(false);
 
   const [isWideInput, setIsWideInput] = useState(false);
+  const [isLargeInput, setIsLargeInput] = useState(false);
 
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 640px)");
-    const update = () => setIsWideInput(mq.matches);
+    const sm = window.matchMedia("(min-width: 640px)");
+    const lg = window.matchMedia("(min-width: 1024px)");
+    const update = () => {
+      setIsWideInput(sm.matches);
+      setIsLargeInput(lg.matches);
+    };
     update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
+    sm.addEventListener("change", update);
+    lg.addEventListener("change", update);
+    return () => {
+      sm.removeEventListener("change", update);
+      lg.removeEventListener("change", update);
+    };
   }, []);
 
   const slug = normalizeSlug(value);
   const displaySlug = slug || PLACEHOLDERS[placeholderIndex];
   const displayTitle = slug ? slugToTitle(slug) : slugToTitle(PLACEHOLDERS[placeholderIndex]);
-  const inputWidthCh = useMemo(
-    () => Math.max(12, (value.length || PLACEHOLDERS[placeholderIndex].length) + 2),
-    [value, placeholderIndex],
-  );
+  const inputWidthCh = useMemo(() => {
+    const charCount = Math.min(
+      value.length || PLACEHOLDERS[placeholderIndex].length,
+      64,
+    );
+    const desired = Math.max(12, charCount + 2);
+    if (!isWideInput) return desired;
+    const maxCh = isLargeInput ? 32 : 24;
+    return Math.min(desired, maxCh);
+  }, [isLargeInput, isWideInput, placeholderIndex, value]);
 
   useEffect(() => {
     const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -119,17 +134,17 @@ export function PlaceInput({ inputId = "page-name" }: { inputId?: string }) {
   };
 
   return (
-    <div className="animate-rise animate-rise-delay-1 mx-auto w-full max-w-2xl">
+    <div className="animate-rise animate-rise-delay-1 mx-auto w-full min-w-0 max-w-2xl">
       <form onSubmit={submit} className="flex flex-col items-stretch sm:items-center">
         <div
-          className="w-full cursor-text border-b border-border pb-3 transition-colors focus-within:border-primary/60 sm:w-auto"
+          className="mx-auto w-full min-w-0 max-w-full cursor-text border-b border-border pb-3 transition-colors focus-within:border-primary/60 sm:w-auto sm:max-w-full"
           onClick={() => inputRef.current?.focus()}
         >
           <p className="mb-2 text-center font-mono text-[13px] text-muted-foreground/60 sm:hidden">
             note.kodama.page/
           </p>
-          <div className="flex w-full min-w-0 items-baseline justify-center gap-0 sm:inline-flex">
-            <span className="hidden select-none font-mono text-[15px] tracking-tight text-muted-foreground/55 sm:inline sm:text-xl lg:text-[28px]">
+          <div className="flex w-full min-w-0 max-w-full items-baseline justify-center gap-0 overflow-hidden sm:inline-flex">
+            <span className="hidden shrink-0 select-none font-mono text-[15px] tracking-tight text-muted-foreground/55 sm:inline sm:text-xl lg:text-[28px]">
               note.kodama.page/
             </span>
             <input
@@ -144,7 +159,7 @@ export function PlaceInput({ inputId = "page-name" }: { inputId?: string }) {
               spellCheck={false}
               aria-label="Name your place"
               aria-describedby={`${inputId}-status ${inputId}-hints`}
-              className="min-w-0 w-full border-0 bg-transparent p-0 text-center font-mono text-[17px] tracking-tight text-foreground caret-primary outline-none ring-0 placeholder:text-muted-foreground/30 focus:outline-none focus:ring-0 sm:w-auto sm:text-left sm:text-xl lg:text-[28px]"
+              className="min-w-0 w-full max-w-full border-0 bg-transparent p-0 text-center font-mono text-[17px] tracking-tight text-foreground caret-primary outline-none ring-0 placeholder:text-muted-foreground/30 focus:outline-none focus:ring-0 sm:min-w-[12ch] sm:w-auto sm:max-w-[min(100%,24ch)] sm:text-left sm:text-xl lg:max-w-[min(100%,32ch)] lg:text-[28px]"
               style={isWideInput ? { width: `${inputWidthCh}ch` } : undefined}
             />
           </div>
@@ -185,18 +200,22 @@ export function PlaceInput({ inputId = "page-name" }: { inputId?: string }) {
 
       <div
         aria-hidden="true"
-        className="mx-auto mt-8 w-full max-w-[560px] rounded-2xl border border-border/80 bg-card/80 px-5 py-5 text-left shadow-card backdrop-blur-sm sm:mt-12 sm:px-8 sm:py-8 lg:px-10 lg:py-10"
+        className="mx-auto mt-8 w-full min-w-0 max-w-[560px] rounded-2xl border border-border/80 bg-card/80 px-5 py-5 text-left shadow-card backdrop-blur-sm sm:mt-12 sm:px-8 sm:py-8 lg:px-10 lg:py-10"
       >
-        <p className="break-all font-mono text-[12px] leading-relaxed text-muted-foreground sm:text-[13px]">
-          <span className="inline-flex items-start gap-1.5">
+        <p className="font-mono text-[12px] leading-relaxed text-muted-foreground sm:text-[13px]">
+          <span className="flex min-w-0 items-start gap-1.5">
             <Leaf className="mt-0.5 h-3 w-3 shrink-0 text-primary" strokeWidth={2} aria-hidden="true" />
-            <span className={value ? "text-foreground/85" : "text-muted-foreground/60"}>
+            <span
+              className={`min-w-0 break-words [overflow-wrap:anywhere] ${
+                value ? "text-foreground/85" : "text-muted-foreground/60"
+              }`}
+            >
               note.kodama.page/{displaySlug}
             </span>
           </span>
         </p>
         <h2
-          className={`mt-4 font-display text-[1.35rem] font-light leading-snug tracking-tight sm:mt-6 sm:text-2xl lg:text-[30px] ${
+          className={`mt-4 break-words font-display text-[1.35rem] font-light leading-snug tracking-tight [overflow-wrap:anywhere] sm:mt-6 sm:text-2xl lg:text-[30px] ${
             value ? "text-foreground" : "text-muted-foreground/40"
           }`}
         >

@@ -101,7 +101,6 @@ export function Editor({
   const [leaveSaving, setLeaveSaving] = useState(false);
   const [workbook, setWorkbook] = useState(initialWorkbook);
   const [activeSheetId, setActiveSheetId] = useState(initialActiveSheetId);
-  const [switchingSheet, setSwitchingSheet] = useState(false);
   const [updatedAt, setUpdatedAt] = useState(initialUpdatedAt);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [burnMode, setBurnMode] = useState<BurnMode>(initialBurnMode);
@@ -220,14 +219,33 @@ export function Editor({
   const markSaved = useCallback((plaintext: string, payload: WorkbookPayload) => {
     lastSavedRef.current = plaintext;
     setLastSavedSerialized(plaintext);
-    setWorkbook(payload);
-    setStatus("saved");
+    setWorkbook((current) => {
+      try {
+        return serializeWorkbook(current) === plaintext ? payload : current;
+      } catch {
+        return payload;
+      }
+    });
+    setStatus(() => {
+      try {
+        return serializeWorkbook(workbookRef.current) === plaintext ? "saved" : "dirty";
+      } catch {
+        return "error";
+      }
+    });
   }, []);
 
   const save = useCallback(
-    async (opts?: { force?: boolean; workbook?: WorkbookPayload }): Promise<boolean> => {
+    async (opts?: {
+      force?: boolean;
+      workbook?: WorkbookPayload;
+      skipFlush?: boolean;
+    }): Promise<boolean> => {
       if (!editToken) return false;
-      const payload = flushWorkbook(opts?.workbook);
+      const payload =
+        opts?.skipFlush && opts.workbook != null
+          ? opts.workbook
+          : flushWorkbook(opts?.workbook);
       let plaintext: string;
       try {
         plaintext = serializeWorkbook(payload);
@@ -308,45 +326,62 @@ export function Editor({
   }, [applyLastSaved, canSave, isDirty]);
 
   const switchSheet = useCallback(
-    async (nextSheetId: string, wb?: WorkbookPayload) => {
-      if (nextSheetId === activeSheetId || switchingSheet) return;
-      setSwitchingSheet(true);
+    (nextSheetId: string, wb?: WorkbookPayload) => {
+      if (nextSheetId === activeSheetId) return;
+
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+
+      const leavingSheetId = activeSheetId;
+      const base = wb ?? workbookRef.current;
+      const leavingMarkdown =
+        richEditorRef.current?.getMarkdown() ??
+        getActiveSheetMarkdown(base, leavingSheetId);
+
+      let flushed: WorkbookPayload;
       try {
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-          timerRef.current = null;
-        }
+        flushed = updateActiveSheetMarkdown(base, leavingSheetId, leavingMarkdown);
+        serializeWorkbook(flushed);
+      } catch {
+        return;
+      }
 
-        const base = wb ?? workbook;
-        const flushed = flushWorkbook(base);
+      let dirty = false;
+      try {
+        dirty = serializeWorkbook(flushed) !== lastSavedRef.current;
+      } catch {
+        /* skip background save */
+      }
 
-        if (canSave && saveMode === "auto") {
-          try {
-            const serialized = serializeWorkbook(flushed);
-            if (serialized !== lastSavedRef.current) {
-              await save({ workbook: flushed });
-            }
-          } catch (e) {
-            if (e instanceof WorkbookError) {
-              toast.error("Workbook is too large to save");
-            }
-          }
-        }
+      workbookRef.current = flushed;
+      setWorkbook(flushed);
+      setActiveSheetId(nextSheetId);
+      writeLastOpenedSheet(slug, nextSheetId);
+      setSheetHash(nextSheetId);
+      editorSyncedRef.current = false;
 
-        setWorkbook(flushed);
-        setActiveSheetId(nextSheetId);
-        writeLastOpenedSheet(slug, nextSheetId);
-        setSheetHash(nextSheetId);
-      } finally {
-        setSwitchingSheet(false);
+      if (canSave && saveMode === "auto" && dirty) {
+        void save({ workbook: flushed, skipFlush: true });
       }
     },
-    [activeSheetId, canSave, flushWorkbook, save, saveMode, slug, switchingSheet, workbook],
+    [activeSheetId, canSave, save, saveMode, slug],
   );
 
   const handleMarkdownChange = useCallback(
     (markdown: string) => {
-      setWorkbook((prev) => updateActiveSheetMarkdown(prev, activeSheetId, markdown));
+      if (!editorSyncedRef.current) return;
+      setWorkbook((prev) => {
+        if (getActiveSheetMarkdown(prev, activeSheetId) === markdown) return prev;
+        const next = updateActiveSheetMarkdown(prev, activeSheetId, markdown);
+        try {
+          if (serializeWorkbook(next) === lastSavedRef.current) return prev;
+        } catch {
+          /* keep update */
+        }
+        return next;
+      });
     },
     [activeSheetId],
   );
@@ -354,13 +389,23 @@ export function Editor({
   const handleEditorBaseline = useCallback(
     (markdown: string) => {
       try {
-        const updated = updateActiveSheetMarkdown(workbookRef.current, activeSheetId, markdown);
+        const prior = workbookRef.current;
+        const priorSerialized = serializeWorkbook(prior);
+        const wasClean = priorSerialized === lastSavedRef.current;
+        const priorMarkdown = getActiveSheetMarkdown(prior, activeSheetId);
+        const updated =
+          priorMarkdown === markdown
+            ? prior
+            : updateActiveSheetMarkdown(prior, activeSheetId, markdown);
         const serialized = serializeWorkbook(updated);
-        lastSavedRef.current = serialized;
+        workbookRef.current = updated;
+        if (updated !== prior) setWorkbook(updated);
         editorSyncedRef.current = true;
-        setLastSavedSerialized(serialized);
-        setWorkbook(updated);
-        setStatus("idle");
+        if (wasClean) {
+          lastSavedRef.current = serialized;
+          setLastSavedSerialized(serialized);
+          setStatus("idle");
+        }
       } catch {
         /* keep prior baseline */
       }
@@ -785,8 +830,8 @@ export function Editor({
             sheets={workbook.sheets}
             activeSheetId={activeSheetId}
             canEdit={canSave}
-            switching={switchingSheet || (saveMode === "auto" && status === "saving")}
-            onSelect={(id) => void switchSheet(id)}
+            switching={false}
+            onSelect={(id) => switchSheet(id)}
             onAdd={handleAddSheet}
             onRename={handleRenameSheet}
             onDelete={(id) => void handleDeleteSheet(id)}
