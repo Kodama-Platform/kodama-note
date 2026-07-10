@@ -75,7 +75,8 @@ New RPCs (illustrative):
 
 - Sheet IDs in URLs (`#sheet=`) remain **non-secret** identifiers; encryption keys stay password-derived.
 - AAD binds ciphertext to slug, version, and sheet role — prevents swap/replay across sheets or pages.
-- Attachments remain page-scoped; GC still scans all sheet markdown client-side.
+- Attachments are stored per slug, but **ownership** is per-sheet via `attachment_ids` in encrypted workbook JSON. Each sheet lists and renders only its own IDs; cross-sheet `kodama-att:` refs do not resolve.
+- Per-sheet upload limits are client-enforced by plan tier (`free: 1`, `starter: 5`, `pro: 50`, `premium: unlimited`). Sheet delete uses `kodama_delete_attachment` for that sheet's IDs.
 
 ## Open questions
 

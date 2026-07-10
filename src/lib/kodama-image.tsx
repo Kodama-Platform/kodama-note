@@ -20,6 +20,7 @@ export function parseKodamaAttUrl(src: string | null | undefined): string | null
 type ResolverContext = {
   slug: string;
   cryptoKey: CryptoKey;
+  allowedAttachmentIds?: ReadonlySet<string>;
 };
 
 const blobCache = new Map<string, string>();
@@ -28,6 +29,9 @@ export async function resolveKodamaAttachmentUrl(
   attachmentId: string,
   ctx: ResolverContext,
 ): Promise<string | null> {
+  if (ctx.allowedAttachmentIds && !ctx.allowedAttachmentIds.has(attachmentId.toLowerCase())) {
+    return null;
+  }
   const cacheKey = `${ctx.slug}:${attachmentId}`;
   const cached = blobCache.get(cacheKey);
   if (cached) return cached;

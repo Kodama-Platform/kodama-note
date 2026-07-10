@@ -203,6 +203,14 @@ export type Database = {
           updated_at: string
         }[]
       }
+      kodama_delete_attachment: {
+        Args: {
+          p_attachment_id: string
+          p_edit_token: string
+          p_slug: string
+        }
+        Returns: undefined
+      }
       kodama_register_attachment: {
         Args: {
           p_edit_token: string

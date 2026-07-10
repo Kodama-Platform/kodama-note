@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   addSheet,
-  collectWorkbookAttachmentIds,
+  addSheetAttachment,
+  collectSheetAttachmentRefs,
   createEmptyWorkbook,
   deleteSheet,
   exportWorkbookMarkdown,
+  getSheetAttachmentIds,
+  getSheetAttachmentIdsForDelete,
   migrateLegacyMarkdown,
   parseWorkbook,
   reorderSheets,
@@ -17,6 +20,7 @@ import {
 
 const SHEET_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SHEET_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const ATT_1 = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 beforeEach(() => {
   let n = 0;
@@ -70,6 +74,14 @@ describe("serializeWorkbook", () => {
     expect(json).toContain("line1\\nline2");
     expect(parseWorkbook(json).sheets[0].markdown).toBe("line1\nline2");
   });
+
+  it("serializes attachment_ids per sheet", () => {
+    let wb = migrateLegacyMarkdown("");
+    wb = addSheetAttachment(wb, wb.sheets[0].sheet_id, ATT_1);
+    const json = serializeWorkbook(wb);
+    expect(json).toContain(ATT_1);
+    expect(parseWorkbook(json).sheets[0].attachment_ids).toContain(ATT_1);
+  });
 });
 
 describe("sheet CRUD", () => {
@@ -106,6 +118,13 @@ describe("limits", () => {
     for (let i = 0; i < WORKBOOK_LIMITS.maxSheets - 1; i++) wb = addSheet(wb);
     expect(() => addSheet(wb)).toThrow(WorkbookError);
   });
+
+  it("rejects duplicate attachment across sheets", () => {
+    let wb = migrateLegacyMarkdown("");
+    wb = addSheet(wb);
+    wb = addSheetAttachment(wb, wb.sheets[0].sheet_id, ATT_1);
+    expect(() => addSheetAttachment(wb, wb.sheets[1].sheet_id, ATT_1)).toThrow(WorkbookError);
+  });
 });
 
 describe("resolveInitialSheetId", () => {
@@ -120,19 +139,31 @@ describe("resolveInitialSheetId", () => {
   });
 });
 
-describe("collectWorkbookAttachmentIds", () => {
-  it("scans all sheets for kodama-att refs", () => {
-    const id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-    let wb = migrateLegacyMarkdown(`![a](kodama-att:${id})`);
+describe("per-sheet attachments", () => {
+  it("collectSheetAttachmentRefs parses markdown refs", () => {
+    const refs = collectSheetAttachmentRefs(`![a](kodama-att:${ATT_1})`);
+    expect(refs.has(ATT_1)).toBe(true);
+  });
+
+  it("infers attachment_ids from markdown on legacy migrate", () => {
+    const wb = migrateLegacyMarkdown(`![a](kodama-att:${ATT_1})`);
+    expect(getSheetAttachmentIds(wb.sheets[0]).has(ATT_1)).toBe(true);
+  });
+
+  it("getSheetAttachmentIdsForDelete returns sheet attachment list", () => {
+    let wb = migrateLegacyMarkdown("");
+    wb = addSheetAttachment(wb, wb.sheets[0].sheet_id, ATT_1);
+    expect(getSheetAttachmentIdsForDelete(wb, wb.sheets[0].sheet_id)).toEqual([ATT_1]);
+  });
+
+  it("deleteSheet removes sheet and its attachment_ids from workbook", () => {
+    let wb = migrateLegacyMarkdown("");
     wb = addSheet(wb);
-    wb = {
-      ...wb,
-      sheets: wb.sheets.map((s, i) =>
-        i === 1 ? { ...s, markdown: `ref kodama-att:${id}` } : s,
-      ),
-    };
-    const refs = collectWorkbookAttachmentIds(wb);
-    expect(refs.has(id)).toBe(true);
+    wb = addSheetAttachment(wb, wb.sheets[1].sheet_id, ATT_1);
+    const secondId = wb.sheets[1].sheet_id;
+    const next = deleteSheet(wb, secondId);
+    expect(next.sheets).toHaveLength(1);
+    expect(getSheetAttachmentIdsForDelete(next, secondId)).toEqual([]);
   });
 });
 

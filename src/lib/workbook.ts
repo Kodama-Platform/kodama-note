@@ -5,7 +5,6 @@ export const WORKBOOK_LIMITS = {
   maxTitleLength: 80,
   maxMarkdownPerSheet: 256 * 1024,
   maxWorkbookTotal: 1024 * 1024,
-  maxAttachments: 50,
 } as const;
 
 export type SheetMeta = {
@@ -16,7 +15,10 @@ export type SheetMeta = {
   updated_at?: string;
 };
 
-export type WorkbookSheet = SheetMeta & { markdown: string };
+export type WorkbookSheet = SheetMeta & {
+  markdown: string;
+  attachment_ids?: string[];
+};
 
 export type WorkbookPayload = {
   schema_version: 1;
@@ -31,7 +33,8 @@ export type WorkbookValidationError =
   | "workbook_too_large"
   | "empty_workbook"
   | "duplicate_sheet_id"
-  | "invalid_primary_sheet";
+  | "invalid_primary_sheet"
+  | "duplicate_attachment_id";
 
 export class WorkbookError extends Error {
   constructor(public code: WorkbookValidationError) {
@@ -56,12 +59,13 @@ function sortedSheets(sheets: WorkbookSheet[]): WorkbookSheet[] {
 export function serializeWorkbook(payload: WorkbookPayload): string {
   validateWorkbook(payload);
   const sheets = sortedSheets(payload.sheets).map((sheet) => {
-    const out: Record<string, string | number> = {
+    const out: Record<string, string | number | string[]> = {
       sheet_id: sheet.sheet_id,
       title: sheet.title,
       order: sheet.order,
       markdown: sheet.markdown,
     };
+    if (sheet.attachment_ids?.length) out.attachment_ids = sheet.attachment_ids;
     if (sheet.created_at) out.created_at = sheet.created_at;
     if (sheet.updated_at) out.updated_at = sheet.updated_at;
     return out;
@@ -88,6 +92,14 @@ function isWorkbookJsonObject(value: unknown): value is {
   );
 }
 
+function normalizeAttachmentIds(raw: unknown, markdown: string): string[] {
+  if (Array.isArray(raw)) {
+    const ids = raw.filter((v): v is string => typeof v === "string" && v.length > 0);
+    if (ids.length) return [...new Set(ids)];
+  }
+  return [...collectSheetAttachmentRefs(markdown)];
+}
+
 function normalizeSheet(raw: Record<string, unknown>, index: number): WorkbookSheet {
   const sheet_id = typeof raw.sheet_id === "string" ? raw.sheet_id : newSheetId();
   const title =
@@ -96,9 +108,12 @@ function normalizeSheet(raw: Record<string, unknown>, index: number): WorkbookSh
       : "Main";
   const order = typeof raw.order === "number" ? raw.order : index;
   const markdown = typeof raw.markdown === "string" ? raw.markdown : "";
+  const attachment_ids = normalizeAttachmentIds(raw.attachment_ids, markdown);
   const created_at = typeof raw.created_at === "string" ? raw.created_at : undefined;
   const updated_at = typeof raw.updated_at === "string" ? raw.updated_at : undefined;
-  return { sheet_id, title, order, markdown, created_at, updated_at };
+  const sheet: WorkbookSheet = { sheet_id, title, order, markdown, created_at, updated_at };
+  if (attachment_ids.length) sheet.attachment_ids = attachment_ids;
+  return sheet;
 }
 
 /** Parse decrypted plaintext — migrates legacy single-markdown notes. */
@@ -134,19 +149,20 @@ export function parseWorkbook(plaintext: string): WorkbookPayload {
 export function migrateLegacyMarkdown(markdown: string): WorkbookPayload {
   const sheet_id = newSheetId();
   const ts = nowIso();
+  const attachment_ids = [...collectSheetAttachmentRefs(markdown)];
+  const sheet: WorkbookSheet = {
+    sheet_id,
+    title: "Main",
+    order: 0,
+    markdown,
+    created_at: ts,
+    updated_at: ts,
+  };
+  if (attachment_ids.length) sheet.attachment_ids = attachment_ids;
   return {
     schema_version: 1,
     primary_sheet_id: sheet_id,
-    sheets: [
-      {
-        sheet_id,
-        title: "Main",
-        order: 0,
-        markdown,
-        created_at: ts,
-        updated_at: ts,
-      },
-    ],
+    sheets: [sheet],
   };
 }
 
@@ -196,6 +212,17 @@ export function validateWorkbook(payload: WorkbookPayload): void {
 
   if (!ids.has(payload.primary_sheet_id)) {
     throw new WorkbookError("invalid_primary_sheet");
+  }
+
+  const attachmentOwners = new Map<string, string>();
+  for (const sheet of payload.sheets) {
+    for (const attId of sheet.attachment_ids ?? []) {
+      const key = attId.toLowerCase();
+      if (attachmentOwners.has(key)) {
+        throw new WorkbookError("duplicate_attachment_id");
+      }
+      attachmentOwners.set(key, sheet.sheet_id);
+    }
   }
 }
 
@@ -315,15 +342,70 @@ const ATT_REF_RE = new RegExp(
   "gi",
 );
 
-/** Collect attachment IDs referenced across all sheets. */
-export function collectWorkbookAttachmentIds(payload: WorkbookPayload): Set<string> {
+/** Parse `kodama-att:` IDs from one sheet's markdown. */
+export function collectSheetAttachmentRefs(markdown: string): Set<string> {
   const ids = new Set<string>();
-  for (const sheet of payload.sheets) {
-    for (const m of sheet.markdown.matchAll(ATT_REF_RE)) {
-      if (m[1]) ids.add(m[1].toLowerCase());
-    }
+  for (const m of markdown.matchAll(ATT_REF_RE)) {
+    if (m[1]) ids.add(m[1].toLowerCase());
   }
   return ids;
+}
+
+export function getSheetAttachmentIds(sheet: WorkbookSheet): Set<string> {
+  const ids = new Set<string>();
+  for (const id of sheet.attachment_ids ?? []) {
+    ids.add(id.toLowerCase());
+  }
+  return ids;
+}
+
+export function getSheetAttachmentIdsForDelete(
+  payload: WorkbookPayload,
+  sheetId: string,
+): string[] {
+  const sheet = getSheetById(payload, sheetId);
+  return sheet?.attachment_ids ? [...sheet.attachment_ids] : [];
+}
+
+export function sheetOwnsAttachment(payload: WorkbookPayload, sheetId: string, attId: string): boolean {
+  const key = attId.toLowerCase();
+  const sheet = getSheetById(payload, sheetId);
+  if (!sheet) return false;
+  return getSheetAttachmentIds(sheet).has(key);
+}
+
+export function findSheetOwningAttachment(
+  payload: WorkbookPayload,
+  attId: string,
+): string | undefined {
+  const key = attId.toLowerCase();
+  for (const sheet of payload.sheets) {
+    if (getSheetAttachmentIds(sheet).has(key)) return sheet.sheet_id;
+  }
+  return undefined;
+}
+
+export function addSheetAttachment(
+  payload: WorkbookPayload,
+  sheetId: string,
+  attachmentId: string,
+): WorkbookPayload {
+  const owner = findSheetOwningAttachment(payload, attachmentId);
+  if (owner && owner !== sheetId) {
+    throw new WorkbookError("duplicate_attachment_id");
+  }
+  const ts = nowIso();
+  return {
+    ...payload,
+    sheets: payload.sheets.map((s) => {
+      if (s.sheet_id !== sheetId) return s;
+      const ids = [...(s.attachment_ids ?? [])];
+      if (!ids.some((id) => id.toLowerCase() === attachmentId.toLowerCase())) {
+        ids.push(attachmentId);
+      }
+      return { ...s, attachment_ids: ids, updated_at: ts };
+    }),
+  };
 }
 
 export function exportWorkbookMarkdown(payload: WorkbookPayload): string {

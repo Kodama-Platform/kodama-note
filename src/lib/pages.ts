@@ -228,6 +228,19 @@ export async function registerAttachment(args: {
   return data as { id: string; created_at: string };
 }
 
+export async function deleteAttachment(args: {
+  slug: string;
+  edit_token: string;
+  attachment_id: string;
+}): Promise<void> {
+  const { error } = await rpc("kodama_delete_attachment", {
+    p_slug: args.slug,
+    p_edit_token: args.edit_token,
+    p_attachment_id: args.attachment_id,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function uploadAttachmentBlob(path: string, blob: Blob): Promise<void> {
   const { error } = await supabase.storage
     .from("page-attachments")

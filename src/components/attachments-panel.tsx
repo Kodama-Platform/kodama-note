@@ -2,27 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileText, Image as ImageIcon, Loader2, Paperclip, Upload } from "lucide-react";
 import { toast } from "sonner";
 
+import { uploadEncryptedAttachment } from "@/lib/attachment-upload";
+import { decrypt, decryptBytes } from "@/lib/crypto";
+import { downloadAttachmentBlob, listAttachments, type AttachmentRow } from "@/lib/pages";
 import {
-  decrypt,
-  decryptBytes,
-  encrypt,
-  encryptBytes,
-  fromB64,
-  randomPath,
-  toB64,
-} from "@/lib/crypto";
-import {
-  downloadAttachmentBlob,
-  listAttachments,
-  registerAttachment,
-  uploadAttachmentBlob,
-  type AttachmentRow,
-} from "@/lib/pages";
-import {
-  collectWorkbookAttachmentIds,
-  WORKBOOK_LIMITS,
-  type WorkbookPayload,
-} from "@/lib/workbook";
+  formatAttachmentLimit,
+  maxAttachmentsPerSheet,
+  type PlanTier,
+} from "@/lib/plan-tier";
+import { collectSheetAttachmentRefs } from "@/lib/workbook";
 
 type DecryptedAttachment = AttachmentRow & { filename: string };
 
@@ -30,19 +18,32 @@ export function AttachmentsPanel({
   slug,
   cryptoKey,
   editToken,
-  workbook,
+  sheetMarkdown,
+  sheetAttachmentIds,
+  planTier,
+  onAttachmentAdded,
 }: {
   slug: string;
   cryptoKey: CryptoKey;
   editToken: string | null;
-  workbook: WorkbookPayload;
+  sheetMarkdown: string;
+  sheetAttachmentIds: Set<string>;
+  planTier: PlanTier;
+  onAttachmentAdded: (id: string) => void;
 }) {
-  const [items, setItems] = useState<DecryptedAttachment[]>([]);
+  const [allItems, setAllItems] = useState<DecryptedAttachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const referencedIds = useMemo(() => collectWorkbookAttachmentIds(workbook), [workbook]);
+  const markdownRefs = useMemo(() => collectSheetAttachmentRefs(sheetMarkdown), [sheetMarkdown]);
+  const limit = maxAttachmentsPerSheet(planTier);
+  const atLimit = limit !== null && sheetAttachmentIds.size >= limit;
+
+  const items = useMemo(
+    () => allItems.filter((a) => sheetAttachmentIds.has(a.id.toLowerCase())),
+    [allItems, sheetAttachmentIds],
+  );
 
   const refresh = async () => {
     setLoading(true);
@@ -58,7 +59,7 @@ export function AttachmentsPanel({
           }
         }),
       );
-      setItems(decrypted);
+      setAllItems(decrypted);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -76,31 +77,23 @@ export function AttachmentsPanel({
       toast.error("You need the edit link on this device to upload files");
       return;
     }
-    if (items.length >= WORKBOOK_LIMITS.maxAttachments) {
-      toast.error(`Maximum ${WORKBOOK_LIMITS.maxAttachments} attachments per workbook`);
-      return;
-    }
-    if (file.size > 20 * 1024 * 1024) {
-      toast.error("Max 20 MB per file");
+    if (atLimit) {
+      toast.error(
+        limit === 1
+          ? "Free plan allows 1 attachment per sheet"
+          : `Maximum ${formatAttachmentLimit(planTier)} attachments per sheet on your plan`,
+      );
       return;
     }
     setUploading(true);
     try {
-      const buf = new Uint8Array(await file.arrayBuffer());
-      const { ciphertext, iv } = await encryptBytes(cryptoKey, buf);
-      const { ciphertext: fnCt, iv: fnIv } = await encrypt(cryptoKey, file.name);
-      const path = `${slug}/${randomPath()}.bin`;
-      await uploadAttachmentBlob(path, new Blob([ciphertext.buffer as ArrayBuffer]));
-      await registerAttachment({
+      const { id } = await uploadEncryptedAttachment({
+        file,
         slug,
-        edit_token: editToken,
-        storage_path: path,
-        iv,
-        filename_ciphertext: fnCt,
-        filename_iv: fnIv,
-        mime: file.type || "application/octet-stream",
-        size: file.size,
+        editToken,
+        cryptoKey,
       });
+      onAttachmentAdded(id);
       toast.success("Attachment encrypted & uploaded");
       await refresh();
     } catch (e) {
@@ -127,7 +120,7 @@ export function AttachmentsPanel({
     }
   };
 
-  const atLimit = items.length >= WORKBOOK_LIMITS.maxAttachments;
+  const limitLabel = formatAttachmentLimit(planTier);
 
   return (
     <div className="rounded-2xl border border-border/80 bg-card/50 p-4 backdrop-blur-sm">
@@ -136,7 +129,8 @@ export function AttachmentsPanel({
           <Paperclip className="h-3.5 w-3.5" />
           Attachments
           <span className="font-sans normal-case tracking-normal text-muted-foreground">
-            ({items.length}/{WORKBOOK_LIMITS.maxAttachments})
+            ({items.length}
+            {limit !== null ? `/${limitLabel}` : ""})
           </span>
         </div>
         {editToken && (
@@ -155,7 +149,7 @@ export function AttachmentsPanel({
               onClick={() => fileInput.current?.click()}
               disabled={uploading || atLimit}
               className="note-toolbar-btn !text-primary hover:!border-primary/40 hover:!bg-primary/10 disabled:opacity-50"
-              title={atLimit ? `Maximum ${WORKBOOK_LIMITS.maxAttachments} attachments` : undefined}
+              title={atLimit ? `Plan limit: ${limitLabel} per sheet` : undefined}
             >
               {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
               {uploading ? "Encrypting…" : "Add file"}
@@ -168,10 +162,10 @@ export function AttachmentsPanel({
         {loading ? (
           <p className="text-xs text-muted-foreground">Loading…</p>
         ) : items.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No attachments yet.</p>
+          <p className="text-xs text-muted-foreground">No attachments on this sheet yet.</p>
         ) : (
           items.map((a) => {
-            const orphaned = !referencedIds.has(a.id.toLowerCase());
+            const orphaned = !markdownRefs.has(a.id.toLowerCase());
             return (
               <button
                 key={a.id}
@@ -179,7 +173,7 @@ export function AttachmentsPanel({
                 className={`group flex w-full items-center gap-3 rounded-lg border px-2 py-1.5 text-left transition-colors hover:border-border/60 hover:bg-primary/5 ${
                   orphaned ? "border-amber-500/30 bg-amber-500/5" : "border-transparent"
                 }`}
-                title={orphaned ? "Not referenced in any sheet" : undefined}
+                title={orphaned ? "Not referenced in this sheet's notes" : undefined}
               >
                 {a.mime.startsWith("image/") ? (
                   <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />

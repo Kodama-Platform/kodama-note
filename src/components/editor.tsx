@@ -36,12 +36,17 @@ import { DonateRibbon, useVisitCount } from "@/components/donate-ribbon";
 import { SheetTabBar } from "@/components/sheet-tab-bar";
 import { encrypt } from "@/lib/crypto";
 import { setSheetHash } from "@/lib/hash-params";
-import { appendVersion, BURN_MODES, updateExpiry, type BurnMode } from "@/lib/pages";
+import { appendVersion, BURN_MODES, deleteAttachment, updateExpiry, type BurnMode } from "@/lib/pages";
+import { getPlanTier } from "@/lib/plan-tier";
 import {
   addSheet,
+  addSheetAttachment,
   deleteSheet,
   getActiveSheetMarkdown,
   getOrderedSheets,
+  getSheetAttachmentIds,
+  getSheetAttachmentIdsForDelete,
+  getSheetById,
   parseWorkbook,
   pickAdjacentSheetId,
   renameSheet,
@@ -92,6 +97,15 @@ export function Editor({
   const lastSavedRef = useRef(initialSerialized);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const richEditorRef = useRef<RichEditorHandle | null>(null);
+  const planTier = useMemo(() => getPlanTier(), []);
+  const activeSheet = useMemo(
+    () => getSheetById(workbook, activeSheetId),
+    [workbook, activeSheetId],
+  );
+  const activeAttachmentIds = useMemo(
+    () => (activeSheet ? getSheetAttachmentIds(activeSheet) : new Set<string>()),
+    [activeSheet],
+  );
   const activeMarkdown = useMemo(
     () => getActiveSheetMarkdown(workbook, activeSheetId),
     [workbook, activeSheetId],
@@ -178,7 +192,6 @@ export function Editor({
       setActiveSheetId(sheetId);
       writeLastOpenedSheet(slug, sheetId);
       setSheetHash(sheetId);
-      richEditorRef.current?.setMarkdown(getActiveSheetMarkdown(restored, sheetId));
       await save({ force: true, workbook: restored });
       toast.success(label ? `Restored to ${label}` : "Restored as a new version");
     },
@@ -186,24 +199,41 @@ export function Editor({
   );
 
   const switchSheet = useCallback(
-    async (nextSheetId: string, wb: WorkbookPayload = workbook) => {
+    async (nextSheetId: string, wb?: WorkbookPayload) => {
       if (nextSheetId === activeSheetId || switchingSheet) return;
       setSwitchingSheet(true);
       try {
-        let serialized: string;
-        try {
-          serialized = serializeWorkbook(workbook);
-        } catch {
-          serialized = lastSavedRef.current;
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
         }
-        if (canSave && serialized !== lastSavedRef.current) {
-          await save();
+
+        const base = wb ?? workbook;
+        let flushed = base;
+        if (getSheetById(base, activeSheetId)) {
+          const currentMd =
+            richEditorRef.current?.getMarkdown() ??
+            getActiveSheetMarkdown(base, activeSheetId);
+          flushed = updateActiveSheetMarkdown(base, activeSheetId, currentMd);
         }
+
+        if (canSave) {
+          try {
+            const serialized = serializeWorkbook(flushed);
+            if (serialized !== lastSavedRef.current) {
+              await save({ workbook: flushed });
+            }
+          } catch (e) {
+            if (e instanceof WorkbookError) {
+              toast.error("Workbook is too large to save");
+            }
+          }
+        }
+
+        setWorkbook(flushed);
         setActiveSheetId(nextSheetId);
         writeLastOpenedSheet(slug, nextSheetId);
         setSheetHash(nextSheetId);
-        const nextMarkdown = getActiveSheetMarkdown(wb, nextSheetId);
-        richEditorRef.current?.setMarkdown(nextMarkdown);
       } finally {
         setSwitchingSheet(false);
       }
@@ -233,12 +263,38 @@ export function Editor({
     setWorkbook((prev) => renameSheet(prev, sheetId, title));
   }, []);
 
+  const handleAttachmentAdded = useCallback(
+    (id: string) => {
+      setWorkbook((prev) => addSheetAttachment(prev, activeSheetId, id));
+    },
+    [activeSheetId],
+  );
+
   const handleDeleteSheet = useCallback(
-    (sheetId: string) => {
+    async (sheetId: string) => {
       try {
+        let wb = workbook;
+        if (sheetId === activeSheetId && getSheetById(wb, activeSheetId)) {
+          const currentMd =
+            richEditorRef.current?.getMarkdown() ??
+            getActiveSheetMarkdown(wb, activeSheetId);
+          wb = updateActiveSheetMarkdown(wb, activeSheetId, currentMd);
+        }
+        const idsToDelete = getSheetAttachmentIdsForDelete(wb, sheetId);
+        if (editToken && idsToDelete.length > 0) {
+          const results = await Promise.allSettled(
+            idsToDelete.map((attachment_id) =>
+              deleteAttachment({ slug, edit_token: editToken, attachment_id }),
+            ),
+          );
+          const failed = results.filter((r) => r.status === "rejected").length;
+          if (failed > 0) {
+            toast.error(`Could not delete ${failed} attachment(s) from storage`);
+          }
+        }
         const focusId =
-          sheetId === activeSheetId ? pickAdjacentSheetId(workbook, sheetId) : activeSheetId;
-        const next = deleteSheet(workbook, sheetId);
+          sheetId === activeSheetId ? pickAdjacentSheetId(wb, sheetId) : activeSheetId;
+        const next = deleteSheet(wb, sheetId);
         setWorkbook(next);
         if (sheetId === activeSheetId) {
           void switchSheet(focusId, next);
@@ -247,7 +303,7 @@ export function Editor({
         toast.error((e as Error).message);
       }
     },
-    [activeSheetId, switchSheet, workbook],
+    [activeSheetId, editToken, slug, switchSheet, workbook],
   );
 
   const handleReorderSheets = useCallback((orderedIds: string[]) => {
@@ -487,7 +543,7 @@ export function Editor({
             onSelect={(id) => void switchSheet(id)}
             onAdd={handleAddSheet}
             onRename={handleRenameSheet}
-            onDelete={handleDeleteSheet}
+            onDelete={(id) => void handleDeleteSheet(id)}
             onReorder={handleReorderSheets}
           />
           <RichEditor
@@ -498,6 +554,10 @@ export function Editor({
             slug={slug}
             cryptoKey={cryptoKey}
             editToken={editToken}
+            allowedAttachmentIds={activeAttachmentIds}
+            planTier={planTier}
+            sheetAttachmentCount={activeAttachmentIds.size}
+            onAttachmentAdded={handleAttachmentAdded}
             focusMode={focus}
           />
 
@@ -507,7 +567,10 @@ export function Editor({
                 slug={slug}
                 cryptoKey={cryptoKey}
                 editToken={editToken}
-                workbook={workbook}
+                sheetMarkdown={activeMarkdown}
+                sheetAttachmentIds={activeAttachmentIds}
+                planTier={planTier}
+                onAttachmentAdded={handleAttachmentAdded}
               />
             </div>
           )}

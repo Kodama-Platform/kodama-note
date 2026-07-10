@@ -19,6 +19,11 @@ import { createKodamaImageExtension, revokeKodamaBlobCache } from "@/lib/kodama-
 import { uploadEncryptedAttachment } from "@/lib/attachment-upload";
 import { handleEditorTabKeydown, ListTabExtension } from "@/lib/list-tab-extension";
 import {
+  formatAttachmentLimit,
+  maxAttachmentsPerSheet,
+  type PlanTier,
+} from "@/lib/plan-tier";
+import {
   KodamaBulletList,
   KodamaTaskItem,
   TaskList,
@@ -59,6 +64,10 @@ type RichEditorProps = {
   slug: string;
   cryptoKey: CryptoKey;
   editToken: string | null;
+  allowedAttachmentIds?: ReadonlySet<string>;
+  planTier?: PlanTier;
+  sheetAttachmentCount?: number;
+  onAttachmentAdded?: (id: string) => void;
   autoFocus?: boolean;
   focusMode?: boolean;
 };
@@ -97,7 +106,7 @@ function linkTargetFromEvent(event: MouseEvent, root: HTMLElement): HTMLAnchorEl
 
 export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
   function RichEditor(
-    { initialContent, onMarkdownChange, slug, cryptoKey, editToken, autoFocus = true, focusMode = false },
+    { initialContent, onMarkdownChange, slug, cryptoKey, editToken, allowedAttachmentIds, planTier = "free", sheetAttachmentCount = 0, onAttachmentAdded, autoFocus = true, focusMode = false },
     ref,
   ) {
     const lastEmitted = useRef(initialContent);
@@ -178,13 +187,23 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         toast.error("You need the edit link on this device to insert images");
         return;
       }
+      const limit = maxAttachmentsPerSheet(planTier);
+      if (limit !== null && sheetAttachmentCount >= limit) {
+        toast.error(
+          limit === 1
+            ? "Free plan allows 1 attachment per sheet"
+            : `Maximum ${formatAttachmentLimit(planTier)} attachments per sheet on your plan`,
+        );
+        return;
+      }
       try {
-        const { url } = await uploadEncryptedAttachment({
+        const { id, url } = await uploadEncryptedAttachment({
           file,
           slug,
           editToken,
           cryptoKey,
         });
+        onAttachmentAdded?.(id);
         ed.chain().focus().setImage({ src: url, alt: file.name }).run();
       } catch (e) {
         toast.error((e as Error).message);
@@ -213,7 +232,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         TableRow,
         TableHeader,
         TableCell,
-        createKodamaImageExtension({ slug, cryptoKey }),
+        createKodamaImageExtension({ slug, cryptoKey, allowedAttachmentIds }),
         Placeholder.configure({
           placeholder: "Start writing…",
         }),
