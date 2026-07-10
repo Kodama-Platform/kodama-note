@@ -3,8 +3,9 @@ import Image from "@tiptap/extension-image";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 
+import { fetchAttachmentList } from "@/lib/attachment-list";
 import { decryptBytes } from "@/lib/crypto";
-import { downloadAttachmentBlob, listAttachments } from "@/lib/pages";
+import { downloadAttachmentBlob } from "@/lib/pages";
 
 export const KODAMA_ATT_PREFIX = "kodama-att:";
 
@@ -36,7 +37,7 @@ export async function resolveKodamaAttachmentUrl(
   const cached = blobCache.get(cacheKey);
   if (cached) return cached;
 
-  const rows = await listAttachments(ctx.slug);
+  const rows = await fetchAttachmentList(ctx.slug);
   const row = rows.find((r) => r.id === attachmentId);
   if (!row) return null;
 

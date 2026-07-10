@@ -13,6 +13,8 @@ import {
   reorderSheets,
   resolveInitialSheetId,
   serializeWorkbook,
+  sheetUsesAttachments,
+  workbookUsesAttachments,
   validateWorkbook,
   WorkbookError,
   WORKBOOK_LIMITS,
@@ -154,6 +156,22 @@ describe("per-sheet attachments", () => {
     let wb = migrateLegacyMarkdown("");
     wb = addSheetAttachment(wb, wb.sheets[0].sheet_id, ATT_1);
     expect(getSheetAttachmentIdsForDelete(wb, wb.sheets[0].sheet_id)).toEqual([ATT_1]);
+  });
+
+  it("workbookUsesAttachments is false for text-only workbooks", () => {
+    expect(workbookUsesAttachments(migrateLegacyMarkdown("hello"))).toBe(false);
+  });
+
+  it("workbookUsesAttachments is true when a sheet has attachment_ids", () => {
+    let wb = migrateLegacyMarkdown("");
+    wb = addSheetAttachment(wb, wb.sheets[0].sheet_id, ATT_1);
+    expect(sheetUsesAttachments(wb.sheets[0])).toBe(true);
+    expect(workbookUsesAttachments(wb)).toBe(true);
+  });
+
+  it("workbookUsesAttachments is true when markdown embeds kodama-att refs", () => {
+    const wb = migrateLegacyMarkdown(`![a](kodama-att:${ATT_1})`);
+    expect(workbookUsesAttachments(wb)).toBe(true);
   });
 
   it("deleteSheet removes sheet and its attachment_ids from workbook", () => {

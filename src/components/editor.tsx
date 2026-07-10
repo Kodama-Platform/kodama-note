@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Check,
@@ -38,6 +39,7 @@ import { RichEditor, type RichEditorHandle } from "@/components/rich-editor";
 import { DonateRibbon, useVisitCount } from "@/components/donate-ribbon";
 import { SheetTabBar } from "@/components/sheet-tab-bar";
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
+import { invalidateAttachmentList, prefetchAttachmentList } from "@/lib/attachment-list";
 import { encrypt } from "@/lib/crypto";
 import { getSaveMode, setSaveMode, type SaveMode } from "@/lib/save-mode";
 import { setSheetHash } from "@/lib/hash-params";
@@ -47,6 +49,7 @@ import { getPlanTier } from "@/lib/plan-tier";
 import {
   addSheet,
   addSheetAttachment,
+  collectSheetAttachmentRefs,
   deleteSheet,
   getActiveSheetMarkdown,
   getOrderedSheets,
@@ -61,6 +64,7 @@ import {
   updateActiveSheetMarkdown,
   WorkbookError,
   writeLastOpenedSheet,
+  workbookUsesAttachments,
   type WorkbookPayload,
 } from "@/lib/workbook";
 
@@ -89,6 +93,7 @@ export function Editor({
   expiresAt: string | null;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const canSave = !!editToken;
   const [saveMode, setSaveModeState] = useState<SaveMode>(() => getSaveMode());
   const [saveModeOpen, setSaveModeOpen] = useState(false);
@@ -119,10 +124,14 @@ export function Editor({
     () => getSheetById(workbook, activeSheetId),
     [workbook, activeSheetId],
   );
-  const activeAttachmentIds = useMemo(
-    () => (activeSheet ? getSheetAttachmentIds(activeSheet) : new Set<string>()),
-    [activeSheet],
-  );
+  const activeAttachmentIds = useMemo(() => {
+    if (!activeSheet) return new Set<string>();
+    const ids = getSheetAttachmentIds(activeSheet);
+    for (const id of collectSheetAttachmentRefs(getActiveSheetMarkdown(workbook, activeSheetId))) {
+      ids.add(id);
+    }
+    return ids;
+  }, [activeSheet, activeSheetId, workbook]);
   const activeMarkdown = useMemo(
     () => getActiveSheetMarkdown(workbook, activeSheetId),
     [workbook, activeSheetId],
@@ -132,6 +141,13 @@ export function Editor({
   );
   const visits = useVisitCount(slug);
   const headerScrolled = useHeaderScrolled();
+  const needsAttachmentList = useMemo(() => workbookUsesAttachments(workbook), [workbook]);
+
+  useEffect(() => {
+    if (needsAttachmentList) {
+      prefetchAttachmentList(slug, queryClient);
+    }
+  }, [needsAttachmentList, queryClient, slug]);
 
   const flushWorkbook = useCallback(
     (base?: WorkbookPayload) =>
@@ -394,6 +410,7 @@ export function Editor({
           if (failed > 0) {
             toast.error(`Could not delete ${failed} attachment(s) from storage`);
           }
+          invalidateAttachmentList(slug, queryClient);
         }
         const focusId =
           sheetId === activeSheetId ? pickAdjacentSheetId(wb, sheetId) : activeSheetId;
@@ -406,7 +423,7 @@ export function Editor({
         toast.error((e as Error).message);
       }
     },
-    [activeSheetId, editToken, slug, switchSheet, workbook],
+    [activeSheetId, editToken, queryClient, slug, switchSheet, workbook],
   );
 
   const handleReorderSheets = useCallback((orderedIds: string[]) => {

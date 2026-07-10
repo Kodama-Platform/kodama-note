@@ -351,6 +351,17 @@ export function collectSheetAttachmentRefs(markdown: string): Set<string> {
   return ids;
 }
 
+/** True when a sheet may have files on the server (reference uploads or inline images). */
+export function sheetUsesAttachments(sheet: WorkbookSheet): boolean {
+  if ((sheet.attachment_ids?.length ?? 0) > 0) return true;
+  return collectSheetAttachmentRefs(sheet.markdown).size > 0;
+}
+
+/** True when any sheet in the workbook may need attachment metadata from the server. */
+export function workbookUsesAttachments(payload: WorkbookPayload): boolean {
+  return payload.sheets.some(sheetUsesAttachments);
+}
+
 export function getSheetAttachmentIds(sheet: WorkbookSheet): Set<string> {
   const ids = new Set<string>();
   for (const id of sheet.attachment_ids ?? []) {

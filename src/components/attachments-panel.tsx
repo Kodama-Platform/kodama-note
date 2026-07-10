@@ -1,18 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, FileText, Image as ImageIcon, Loader2, Paperclip, Upload } from "lucide-react";
 import { toast } from "sonner";
 
+import { decryptAttachmentFilenames, type DecryptedAttachment } from "@/lib/attachment-decrypt";
+import {
+  attachmentsQueryKey,
+  fetchAttachmentList,
+  invalidateAttachmentList,
+  shouldFetchAttachmentList,
+} from "@/lib/attachment-list";
 import { uploadEncryptedAttachment } from "@/lib/attachment-upload";
-import { decrypt, decryptBytes } from "@/lib/crypto";
-import { downloadAttachmentBlob, listAttachments, type AttachmentRow } from "@/lib/pages";
+import { decryptBytes } from "@/lib/crypto";
+import { downloadAttachmentBlob } from "@/lib/pages";
 import {
   formatAttachmentLimit,
   maxAttachmentsPerSheet,
   type PlanTier,
 } from "@/lib/plan-tier";
 import { collectSheetAttachmentRefs } from "@/lib/workbook";
-
-type DecryptedAttachment = AttachmentRow & { filename: string };
 
 export function AttachmentsPanel({
   slug,
@@ -31,46 +37,46 @@ export function AttachmentsPanel({
   planTier: PlanTier;
   onAttachmentAdded: (id: string) => void;
 }) {
+  const queryClient = useQueryClient();
   const [allItems, setAllItems] = useState<DecryptedAttachment[]>([]);
-  const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const markdownRefs = useMemo(() => collectSheetAttachmentRefs(sheetMarkdown), [sheetMarkdown]);
+  const needsAttachmentList = shouldFetchAttachmentList(sheetAttachmentIds);
   const limit = maxAttachmentsPerSheet(planTier);
   const atLimit = limit !== null && sheetAttachmentIds.size >= limit;
 
-  const items = useMemo(
-    () => allItems.filter((a) => sheetAttachmentIds.has(a.id.toLowerCase())),
-    [allItems, sheetAttachmentIds],
-  );
-
-  const refresh = async () => {
-    setLoading(true);
-    try {
-      const rows = await listAttachments(slug);
-      const decrypted = await Promise.all(
-        rows.map(async (r) => {
-          try {
-            const fn = await decrypt(cryptoKey, r.filename_ciphertext, r.filename_iv);
-            return { ...r, filename: fn };
-          } catch {
-            return { ...r, filename: "(unreadable)" };
-          }
-        }),
-      );
-      setAllItems(decrypted);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const listQuery = useQuery({
+    queryKey: attachmentsQueryKey(slug),
+    queryFn: () => fetchAttachmentList(slug),
+    staleTime: 30_000,
+    enabled: needsAttachmentList,
+  });
 
   useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
+    const rows = listQuery.data;
+    if (!rows) {
+      if (!listQuery.isLoading) setAllItems([]);
+      return;
+    }
+    let cancelled = false;
+    void decryptAttachmentFilenames(rows, cryptoKey).then((decrypted) => {
+      if (!cancelled) setAllItems(decrypted);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cryptoKey, listQuery.data, listQuery.isLoading]);
+
+  const items = useMemo(() => {
+    const onSheet = (id: string) =>
+      sheetAttachmentIds.has(id) || markdownRefs.has(id);
+    return allItems.filter((a) => onSheet(a.id.toLowerCase()));
+  }, [allItems, markdownRefs, sheetAttachmentIds]);
+
+  const displayCount =
+    listQuery.isLoading && items.length === 0 ? sheetAttachmentIds.size : items.length;
 
   const upload = async (file: File) => {
     if (!editToken) {
@@ -95,7 +101,7 @@ export function AttachmentsPanel({
       });
       onAttachmentAdded(id);
       toast.success("Attachment encrypted & uploaded");
-      await refresh();
+      invalidateAttachmentList(slug, queryClient);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -129,7 +135,7 @@ export function AttachmentsPanel({
           <Paperclip className="h-3.5 w-3.5" />
           Attachments
           <span className="font-sans normal-case tracking-normal text-muted-foreground">
-            ({items.length}
+            ({displayCount}
             {limit !== null ? `/${limitLabel}` : ""})
           </span>
         </div>
@@ -159,8 +165,21 @@ export function AttachmentsPanel({
       </div>
 
       <div className="mt-3 space-y-1.5">
-        {loading ? (
-          <p className="text-xs text-muted-foreground">Loading…</p>
+        {listQuery.isError ? (
+          <p className="text-xs text-muted-foreground">Could not load attachments.</p>
+        ) : listQuery.isLoading && needsAttachmentList && items.length === 0 ? (
+          <>
+            {Array.from({ length: Math.min(sheetAttachmentIds.size, 3) }, (_, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-3 rounded-lg border border-transparent px-2 py-1.5"
+                aria-hidden="true"
+              >
+                <div className="h-4 w-4 shrink-0 animate-pulse rounded bg-muted" />
+                <div className="h-3.5 flex-1 animate-pulse rounded bg-muted" />
+              </div>
+            ))}
+          </>
         ) : items.length === 0 ? (
           <p className="text-xs text-muted-foreground">No attachments on this sheet yet.</p>
         ) : (
