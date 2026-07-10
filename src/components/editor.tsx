@@ -44,7 +44,7 @@ import { encrypt } from "@/lib/crypto";
 import { getSaveMode, setSaveMode, type SaveMode } from "@/lib/save-mode";
 import { setSheetHash } from "@/lib/hash-params";
 import { deleteAttachment, savePage, updateExpiry, type BurnMode } from "@/lib/pages";
-import { flushActiveSheetMarkdown, isWorkbookDirty } from "@/lib/workbook-flush";
+import { flushActiveSheetMarkdown } from "@/lib/workbook-flush";
 import { getPlanTier } from "@/lib/plan-tier";
 import {
   addSheet,
@@ -119,6 +119,9 @@ export function Editor({
   const lastSavedRef = useRef(initialSerialized);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const richEditorRef = useRef<RichEditorHandle | null>(null);
+  const editorSyncedRef = useRef(false);
+  const workbookRef = useRef(workbook);
+  workbookRef.current = workbook;
   const planTier = useMemo(() => getPlanTier(), []);
   const activeSheet = useMemo(
     () => getSheetById(workbook, activeSheetId),
@@ -148,6 +151,10 @@ export function Editor({
       prefetchAttachmentList(slug, queryClient);
     }
   }, [needsAttachmentList, queryClient, slug]);
+
+  useEffect(() => {
+    editorSyncedRef.current = false;
+  }, [activeSheetId]);
 
   const flushWorkbook = useCallback(
     (base?: WorkbookPayload) =>
@@ -208,11 +215,6 @@ export function Editor({
   const isDirty = useMemo(
     () => serializedWorkbook !== lastSavedSerialized,
     [serializedWorkbook, lastSavedSerialized],
-  );
-
-  const hasUnsavedChanges = useMemo(
-    () => isWorkbookDirty(workbook, activeSheetId, richEditorRef, lastSavedSerialized),
-    [workbook, activeSheetId, lastSavedSerialized, serializedWorkbook],
   );
 
   const markSaved = useCallback((plaintext: string, payload: WorkbookPayload) => {
@@ -297,13 +299,13 @@ export function Editor({
 
   const handleReload = useCallback(() => {
     if (!canSave) return;
-    if (hasUnsavedChanges) {
+    if (isDirty) {
       setLeavePrompt({ kind: "reload" });
       return;
     }
     applyLastSaved();
     toast.success("Reloaded last saved version");
-  }, [applyLastSaved, canSave, hasUnsavedChanges]);
+  }, [applyLastSaved, canSave, isDirty]);
 
   const switchSheet = useCallback(
     async (nextSheetId: string, wb?: WorkbookPayload) => {
@@ -351,18 +353,17 @@ export function Editor({
 
   const handleEditorBaseline = useCallback(
     (markdown: string) => {
-      setWorkbook((prev) => {
-        const updated = updateActiveSheetMarkdown(prev, activeSheetId, markdown);
-        try {
-          const serialized = serializeWorkbook(updated);
-          lastSavedRef.current = serialized;
-          setLastSavedSerialized(serialized);
-        } catch {
-          return prev;
-        }
-        return updated;
-      });
-      setStatus("idle");
+      try {
+        const updated = updateActiveSheetMarkdown(workbookRef.current, activeSheetId, markdown);
+        const serialized = serializeWorkbook(updated);
+        lastSavedRef.current = serialized;
+        editorSyncedRef.current = true;
+        setLastSavedSerialized(serialized);
+        setWorkbook(updated);
+        setStatus("idle");
+      } catch {
+        /* keep prior baseline */
+      }
     },
     [activeSheetId],
   );
@@ -456,13 +457,13 @@ export function Editor({
   // Warn before closing tab or leaving the site
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (!canSave || !hasUnsavedChanges || status === "saving") return;
+      if (!canSave || !editorSyncedRef.current || !isDirty || status === "saving") return;
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [canSave, hasUnsavedChanges, status]);
+  }, [canSave, isDirty, status]);
 
   // Keyboard shortcuts + command palette events
   useEffect(() => {
@@ -531,7 +532,7 @@ export function Editor({
           <Link
             to="/"
             onClick={(e) => {
-              if (!canSave || !hasUnsavedChanges) return;
+              if (!canSave || !isDirty) return;
               e.preventDefault();
               setLeavePrompt({ kind: "home" });
             }}
