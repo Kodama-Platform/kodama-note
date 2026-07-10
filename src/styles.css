@@ -747,6 +747,293 @@ html:not(.dark) .k-mist-band {
   font-family: var(--font-serif);
 }
 
+/* TipTap live editor typography */
+.tiptap,
+.ProseMirror {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 300;
+  line-height: 1.75;
+  color: rgb(var(--foreground));
+  caret-color: rgb(var(--foreground));
+}
+
+@media (min-width: 640px) {
+  .tiptap,
+  .ProseMirror {
+    font-size: 18px;
+  }
+}
+
+.tiptap:focus,
+.ProseMirror:focus,
+.tiptap:focus-visible,
+.ProseMirror:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.tiptap > * + *,
+.ProseMirror > * + * {
+  margin-top: 0.85em;
+}
+
+.tiptap h1,
+.ProseMirror h1 {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin-top: 1.5em;
+  scroll-margin-top: calc(4.5rem + 12px);
+}
+
+.tiptap h2,
+.ProseMirror h2 {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  margin-top: 1.35em;
+  scroll-margin-top: calc(4.5rem + 12px);
+}
+
+.tiptap h3,
+.ProseMirror h3 {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 500;
+  line-height: 1.35;
+  margin-top: 1.2em;
+  scroll-margin-top: calc(4.5rem + 12px);
+}
+
+.tiptap p,
+.ProseMirror p {
+  margin: 0;
+}
+
+.tiptap ul,
+.tiptap ol,
+.ProseMirror ul,
+.ProseMirror ol {
+  margin: 0;
+  padding-left: 1.5em;
+  list-style-position: outside;
+}
+
+.tiptap ul,
+.ProseMirror ul {
+  list-style-type: disc;
+}
+
+.tiptap ol,
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+
+.tiptap ul ul,
+.ProseMirror ul ul {
+  list-style-type: circle;
+}
+
+.tiptap ul ul ul,
+.ProseMirror ul ul ul {
+  list-style-type: square;
+}
+
+.tiptap li,
+.ProseMirror li {
+  display: list-item;
+}
+
+.tiptap li > ul,
+.tiptap li > ol,
+.ProseMirror li > ul,
+.ProseMirror li > ol {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+  padding-left: 1.5em;
+}
+
+.tiptap li + li,
+.ProseMirror li + li {
+  margin-top: 0.25em;
+}
+
+/* Task lists (GFM checkboxes) */
+.tiptap ul[data-type="taskList"],
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.tiptap ul[data-type="taskList"] > li,
+.ProseMirror ul[data-type="taskList"] > li,
+.tiptap li[data-type="taskItem"],
+.ProseMirror li[data-type="taskItem"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  list-style: none;
+}
+
+.tiptap ul[data-type="taskList"] > li > label,
+.ProseMirror ul[data-type="taskList"] > li > label,
+.tiptap li[data-type="taskItem"] > label,
+.ProseMirror li[data-type="taskItem"] > label {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-top: 0.2em;
+  user-select: none;
+}
+
+.tiptap ul[data-type="taskList"] > li > label input[type="checkbox"],
+.ProseMirror ul[data-type="taskList"] > li > label input[type="checkbox"],
+.tiptap li[data-type="taskItem"] > label input[type="checkbox"],
+.ProseMirror li[data-type="taskItem"] > label input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: rgb(var(--primary));
+  cursor: pointer;
+}
+
+.tiptap ul[data-type="taskList"] > li > div,
+.ProseMirror ul[data-type="taskList"] > li > div,
+.tiptap li[data-type="taskItem"] > div,
+.ProseMirror li[data-type="taskItem"] > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.tiptap ul[data-type="taskList"] > li[data-checked="true"] > div,
+.ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > div,
+.tiptap li[data-type="taskItem"][data-checked="true"] > div,
+.ProseMirror li[data-type="taskItem"][data-checked="true"] > div {
+  color: rgb(var(--muted-foreground));
+  text-decoration: line-through;
+  text-decoration-color: rgb(var(--muted-foreground) / 0.55);
+}
+
+.tiptap li p,
+.ProseMirror li p {
+  margin: 0;
+}
+
+.tiptap blockquote,
+.ProseMirror blockquote {
+  margin: 0;
+  padding-left: 1em;
+  border-left: 2px solid rgb(var(--border) / 0.8);
+  color: rgb(var(--muted-foreground));
+}
+
+.tiptap pre,
+.ProseMirror pre {
+  margin: 0;
+  padding: 0.85em 1em;
+  border-radius: 0.5rem;
+  background: rgb(var(--muted) / 0.6);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  line-height: 1.55;
+  overflow-x: auto;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.tiptap code,
+.ProseMirror code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: rgb(var(--muted) / 0.5);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.35em;
+}
+
+.tiptap pre code,
+.ProseMirror pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.tiptap a,
+.ProseMirror a,
+.tiptap a.kodama-editor-link,
+.ProseMirror a.kodama-editor-link {
+  color: rgb(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: text;
+}
+
+.tiptap a.kodama-editor-link:hover,
+.ProseMirror a.kodama-editor-link:hover {
+  color: rgb(var(--moss-deep));
+}
+
+.tiptap a.kodama-editor-link[title]:hover,
+.ProseMirror a.kodama-editor-link[title]:hover {
+  text-decoration-thickness: 2px;
+}
+
+.tiptap table,
+.ProseMirror table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+  font-size: 0.95em;
+}
+
+.tiptap th,
+.tiptap td,
+.ProseMirror th,
+.ProseMirror td {
+  border: 1px solid rgb(var(--border) / 0.8);
+  padding: 0.45em 0.65em;
+  vertical-align: top;
+}
+
+.tiptap th,
+.ProseMirror th {
+  font-weight: 500;
+  background: rgb(var(--muted) / 0.35);
+}
+
+.tiptap img,
+.ProseMirror img,
+.kodama-inline-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 24px rgb(0 0 0 / 0.08);
+}
+
+.kodama-image-wrapper {
+  display: block;
+  margin: 0.5em 0;
+}
+
+.kodama-image-placeholder {
+  min-height: 120px;
+  border-radius: 0.5rem;
+  background: rgb(var(--muted) / 0.4);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.tiptap p.is-editor-empty:first-child::before,
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: rgb(var(--muted-foreground) / 0.5);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
 .hairline {
   box-shadow: inset 0 -1px 0 var(--color-border);
 }
@@ -815,7 +1102,9 @@ html:not(.dark) .k-mist-band {
     color: #000 !important;
   }
 
-  textarea[data-editor-textarea="true"] {
+  textarea[data-editor-textarea="true"],
+  .tiptap,
+  .ProseMirror {
     color: #000 !important;
     background: #fff !important;
     border: 0 !important;
@@ -824,6 +1113,11 @@ html:not(.dark) .k-mist-band {
     min-height: 0 !important;
     white-space: pre-wrap !important;
     font-family: ui-serif, Georgia, serif !important;
+  }
+
+  .tiptap table,
+  .ProseMirror table {
+    page-break-inside: avoid;
   }
 
   .prose {

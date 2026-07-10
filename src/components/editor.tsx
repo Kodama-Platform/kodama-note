@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   Check,
   CloudOff,
-  Eye,
   Flame,
   Focus,
   Loader2,
@@ -32,10 +31,10 @@ import { VersionHistory } from "@/components/version-history";
 import { ExportMenu } from "@/components/export-menu";
 import { FindReplace } from "@/components/find-replace";
 import { Outline } from "@/components/outline";
+import { RichEditor, type RichEditorHandle } from "@/components/rich-editor";
 import { DonateRibbon, useVisitCount } from "@/components/donate-ribbon";
 import { encrypt } from "@/lib/crypto";
 import { appendVersion, BURN_MODES, updateExpiry, type BurnMode } from "@/lib/pages";
-import { renderMarkdown } from "@/lib/markdown";
 
 
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
@@ -61,7 +60,6 @@ export function Editor({
   const [text, setText] = useState(initialText);
   const [updatedAt, setUpdatedAt] = useState(initialUpdatedAt);
   const [status, setStatus] = useState<SaveStatus>("idle");
-  const [preview, setPreview] = useState(false);
   const [burnMode, setBurnMode] = useState<BurnMode>(initialBurnMode);
   const [expiresAt, setExpiresAt] = useState<string | null>(initialExpiresAt);
   const [expiryOpen, setExpiryOpen] = useState(false);
@@ -71,7 +69,7 @@ export function Editor({
   const [findMode, setFindMode] = useState<"find" | "replace">("find");
   const lastSavedRef = useRef(initialText);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const richEditorRef = useRef<RichEditorHandle | null>(null);
   const initialWordsRef = useRef<number>(
     initialText.trim() ? initialText.trim().split(/\s+/).length : 0,
   );
@@ -129,6 +127,7 @@ export function Editor({
         timerRef.current = null;
       }
       setText(plaintext);
+      richEditorRef.current?.setMarkdown(plaintext);
       // Force a new snapshot even if the restored text matches the latest one,
       // so version history stays strictly append-only.
       await save({ force: true, text: plaintext });
@@ -193,34 +192,14 @@ export function Editor({
       }
     };
     const onFocusEvt = () => setFocus((v) => !v);
-    const onPreviewEvt = () => setPreview((v) => !v);
     window.addEventListener("keydown", onKey);
     window.addEventListener("kodama:toggle-focus", onFocusEvt);
-    window.addEventListener("kodama:toggle-preview", onPreviewEvt);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("kodama:toggle-focus", onFocusEvt);
-      window.removeEventListener("kodama:toggle-preview", onPreviewEvt);
     };
   }, [save, findOpen, focus, slug]);
 
-
-  // Typewriter scroll in focus mode
-  useEffect(() => {
-    if (!focus || preview) return;
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const onInput = () => {
-      const rect = ta.getBoundingClientRect();
-      const targetY = window.innerHeight / 2;
-      const currentY = rect.top + Math.min(rect.height, ta.clientHeight) / 2;
-      window.scrollBy({ top: currentY - targetY, behavior: "smooth" });
-    };
-    ta.addEventListener("keyup", onInput);
-    return () => ta.removeEventListener("keyup", onInput);
-  }, [focus, preview]);
-
-  const html = useMemo(() => (preview ? renderMarkdown(text) : ""), [preview, text]);
   const charCount = text.length;
   const wordCount = useMemo(() => (text.trim() ? text.trim().split(/\s+/).length : 0), [text]);
   const sessionWords = Math.max(0, wordCount - initialWordsRef.current);
@@ -253,14 +232,6 @@ export function Editor({
             {canSave && <StatusPill status={status} />}
             <ExpiryPill burnMode={burnMode} expiresAt={expiresAt} />
             <button
-              onClick={() => setPreview((v) => !v)}
-              className="note-toolbar-btn"
-              aria-pressed={preview}
-            >
-              {preview ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              <span className="hidden sm:inline">{preview ? "Edit" : "Preview"}</span>
-            </button>
-            <button
               onClick={() => {
                 setFindMode("find");
                 setFindOpen((v) => !v);
@@ -281,7 +252,7 @@ export function Editor({
               <Focus className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Focus</span>
             </button>
-            <ExportMenu slug={slug} text={text} />
+            <ExportMenu slug={slug} getText={() => richEditorRef.current?.getMarkdown() ?? text} />
             <VersionHistory
               slug={slug}
               cryptoKey={cryptoKey}
@@ -372,31 +343,23 @@ export function Editor({
         )}
       </header>
 
-      <main className="mx-auto flex w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-10 lg:px-10">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 items-start px-4 py-6 sm:px-6 sm:py-10 lg:px-10">
         {!focus && (
-          <div data-editor-outline="true">
-            <Outline text={text} textareaRef={textareaRef} />
-          </div>
+          <Outline
+            text={text}
+            onJumpToHeading={(heading) => richEditorRef.current?.scrollToHeading(heading)}
+          />
         )}
         <div className="mx-auto flex w-full max-w-[800px] flex-1 flex-col">
-          {preview ? (
-            <article
-              className="prose prose-neutral dark:prose-invert reading-mode min-h-[60vh] max-w-none break-words text-[17px] leading-[1.75]"
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          ) : (
-            <textarea
-              ref={textareaRef}
-              data-editor-textarea="true"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Start writing… Markdown is supported. Auto-saves as you type."
-              spellCheck
-              autoFocus
-              className="min-h-[60vh] w-full flex-1 resize-none border-0 bg-transparent font-serif text-[17px] font-light leading-[1.75] text-foreground outline-none placeholder:text-muted-foreground/50 sm:text-lg"
-            />
-          )}
+          <RichEditor
+            ref={richEditorRef}
+            initialContent={initialText}
+            onMarkdownChange={setText}
+            slug={slug}
+            cryptoKey={cryptoKey}
+            editToken={editToken}
+            focusMode={focus}
+          />
 
           {!focus && (
             <div className="mt-8" data-editor-attachments="true">
@@ -441,9 +404,12 @@ export function Editor({
       {findOpen && (
         <FindReplace
           text={text}
-          onReplace={(next) => setText(next)}
+          onReplace={(next) => {
+            setText(next);
+            richEditorRef.current?.setMarkdown(next);
+          }}
           onClose={() => setFindOpen(false)}
-          textareaRef={textareaRef}
+          editorRef={richEditorRef}
           initialMode={findMode}
         />
       )}

@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Replace, X } from "lucide-react";
+import type { RichEditorHandle } from "@/components/rich-editor";
 
 export function FindReplace({
   text,
   onReplace,
   onClose,
-  textareaRef,
+  editorRef,
   initialMode = "find",
 }: {
   text: string;
   onReplace: (next: string) => void;
   onClose: () => void;
-  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  editorRef: React.RefObject<RichEditorHandle | null>;
   initialMode?: "find" | "replace";
 }) {
   const [query, setQuery] = useState("");
@@ -47,16 +48,10 @@ export function FindReplace({
   }, [matches.length]);
 
   const selectMatch = (i: number) => {
-    const ta = textareaRef.current;
-    if (!ta || matches.length === 0) return;
+    if (matches.length === 0) return;
     const safeIdx = ((i % matches.length) + matches.length) % matches.length;
     const start = matches[safeIdx];
-    ta.focus();
-    ta.setSelectionRange(start, start + query.length);
-    // Scroll into view
-    const line = text.slice(0, start).split("\n").length;
-    const approxLineHeight = 28;
-    ta.scrollTop = Math.max(0, line * approxLineHeight - ta.clientHeight / 2);
+    editorRef.current?.findInDocument(query, start);
     setIndex(safeIdx);
   };
 
@@ -65,17 +60,17 @@ export function FindReplace({
 
   const replaceOne = () => {
     if (matches.length === 0 || !query) return;
-    const start = matches[index];
-    const before = text.slice(0, start);
-    const after = text.slice(start + query.length);
-    onReplace(before + replacement + after);
+    const nextText = editorRef.current?.replaceInMarkdown(query, replacement, index);
+    if (nextText != null) onReplace(nextText);
   };
 
   const replaceAll = () => {
     if (!query) return;
-    // Case-sensitive replace? We did case-insensitive search; match the case-insensitive behavior here too.
-    const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-    onReplace(text.replace(re, replacement));
+    const nextText = editorRef.current?.replaceAllInMarkdown(query, replacement) ?? text.replace(
+      new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"),
+      replacement,
+    );
+    onReplace(nextText);
   };
 
   const onKey = (e: React.KeyboardEvent) => {

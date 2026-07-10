@@ -60,6 +60,42 @@ vi.mock("@/lib/markdown", () => ({
   renderMarkdown: (s: string) => s,
 }));
 
+vi.mock("@/components/rich-editor", () => {
+  const React = require("react");
+  const { useImperativeHandle } = React;
+  return {
+    RichEditor: React.forwardRef(function MockRichEditor(
+      {
+        initialContent,
+        onMarkdownChange,
+      }: {
+        initialContent: string;
+        onMarkdownChange: (s: string) => void;
+      },
+      ref: React.Ref<{
+        getMarkdown: () => string;
+        setMarkdown: (s: string) => void;
+      }>,
+    ) {
+      const [value, setValue] = React.useState(initialContent);
+      useImperativeHandle(ref, () => ({
+        getMarkdown: () => value,
+        setMarkdown: (s: string) => {
+          setValue(s);
+          onMarkdownChange(s);
+        },
+        focus: () => {},
+        findInDocument: () => false,
+        replaceInMarkdown: () => null,
+        replaceAllInMarkdown: (_q: string, r: string) => value.replace(/./g, r),
+        scrollToHeading: () => {},
+        insertImageFromFile: async () => {},
+      }));
+      return null;
+    }),
+  };
+});
+
 vi.mock("@/components/theme-toggle", () => ({
   ThemeToggle: () => null,
 }));

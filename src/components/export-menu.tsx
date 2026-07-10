@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, FileText, FileCode2, Printer } from "lucide-react";
 
-export function ExportMenu({ slug, text }: { slug: string; text: string }) {
+export function ExportMenu({ slug, getText }: { slug: string; getText: () => string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -14,6 +14,7 @@ export function ExportMenu({ slug, text }: { slug: string; text: string }) {
   }, []);
 
   const download = (ext: "md" | "txt") => {
+    const text = getText();
     const mime = ext === "md" ? "text/markdown" : "text/plain";
     const blob = new Blob([text], { type: `${mime};charset=utf-8` });
     const url = URL.createObjectURL(blob);

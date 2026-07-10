@@ -14,7 +14,6 @@ import {
   ArrowRight,
   Check,
   Copy,
-  Eye,
   Focus,
   Monitor,
   Moon,
@@ -121,9 +120,6 @@ export function CommandPalette() {
             </CommandItem>
             <CommandItem onSelect={run(() => dispatchEditorEvent("kodama:toggle-focus"))}>
               <Focus className="h-4 w-4" /> Toggle focus mode
-            </CommandItem>
-            <CommandItem onSelect={run(() => dispatchEditorEvent("kodama:toggle-preview"))}>
-              <Eye className="h-4 w-4" /> Toggle reading mode
             </CommandItem>
             <CommandItem onSelect={run(() => dispatchEditorEvent("kodama:export"))}>
               <ArrowRight className="h-4 w-4" /> Export note
