@@ -15,9 +15,9 @@ export function EncryptionProgress({ phase }: { phase: EncryptionPhase }) {
     <div
       role="status"
       aria-live="polite"
-      className="mt-4 space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-4"
+      className="mt-4 space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-4 backdrop-blur-sm"
     >
-      <p className="text-xs font-medium text-foreground">
+      <p className="text-xs font-light text-foreground">
         Encryption happens in your browser before anything is uploaded.
       </p>
       <ul className="space-y-1.5">

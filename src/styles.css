@@ -631,6 +631,106 @@ html:not(.dark) .k-mist-band {
 
 /* ── Note app utilities ── */
 
+.note-atmosphere {
+  opacity: 0.5;
+}
+
+.focus-mode .note-atmosphere {
+  opacity: 0.12;
+  transition: opacity 0.5s ease;
+}
+
+.note-card {
+  border-radius: 1rem;
+  border: 1px solid rgb(var(--border) / 0.8);
+  background: rgb(var(--card) / 0.8);
+  padding: 1.75rem;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(4px);
+}
+
+@media (min-width: 640px) {
+  .note-card {
+    padding: 2rem;
+  }
+}
+
+.note-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  background: rgb(var(--primary) / 0.1);
+  padding: 0.125rem 0.625rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(var(--primary));
+}
+
+.note-input {
+  height: 2.75rem;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(var(--border) / 0.8);
+  background: rgb(var(--background) / 0.6);
+  padding: 0 1rem;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 300;
+  color: rgb(var(--foreground));
+  outline: none;
+  backdrop-filter: blur(4px);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.note-input::placeholder {
+  color: rgb(var(--muted-foreground) / 0.5);
+}
+
+.note-input:focus-visible {
+  border-color: rgb(var(--ring));
+  box-shadow: 0 0 0 4px rgb(var(--ring) / 0.2);
+}
+
+.note-toolbar-btn {
+  display: inline-flex;
+  height: 2rem;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 9999px;
+  border: 1px solid rgb(var(--border) / 0.6);
+  background: rgb(var(--background) / 0.5);
+  padding: 0 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: rgb(var(--foreground));
+  backdrop-filter: blur(4px);
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.note-toolbar-btn:hover {
+  border-color: rgb(var(--primary) / 0.4);
+  background: rgb(var(--primary) / 0.05);
+}
+
+.note-toolbar-btn[aria-pressed="true"] {
+  border-color: rgb(var(--primary) / 0.35);
+  background: rgb(var(--primary) / 0.1);
+}
+
+.note-chrome {
+  border-color: rgb(var(--border) / 0.7);
+  background: rgb(var(--background) / 0.85);
+  backdrop-filter: blur(12px);
+}
+
+
 .focus-mode [data-editor-chrome="true"] {
   opacity: 0;
   pointer-events: none;

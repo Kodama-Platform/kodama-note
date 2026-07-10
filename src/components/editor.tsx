@@ -17,6 +17,16 @@ import { toast } from "sonner";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { KodamaMark } from "@/components/kodama-mark";
+import { NoteShell } from "@/components/site/note-shell";
+import {
+  HEADER_INNER,
+  HEADER_OFFSET,
+  headerLogoClass,
+  headerLogoMarkClass,
+  headerLogoTextClass,
+  headerShellClass,
+  useHeaderScrolled,
+} from "@/components/site/header-chrome";
 import { AttachmentsPanel } from "@/components/attachments-panel";
 import { VersionHistory } from "@/components/version-history";
 import { ExportMenu } from "@/components/export-menu";
@@ -66,6 +76,7 @@ export function Editor({
     initialText.trim() ? initialText.trim().split(/\s+/).length : 0,
   );
   const visits = useVisitCount(slug);
+  const headerScrolled = useHeaderScrolled();
 
 
   const changeExpiry = useCallback(
@@ -217,20 +228,25 @@ export function Editor({
 
 
   return (
-    <div className={`flex min-h-screen flex-col bg-background ${focus ? "focus-mode" : ""}`}>
+    <NoteShell showHeader={false} footer={false} className={focus ? "focus-mode" : ""}>
+      <div className={`flex min-h-screen flex-col ${HEADER_OFFSET}`}>
       <header
         data-editor-chrome="true"
-        className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur"
+        className={headerShellClass(headerScrolled)}
       >
 
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-3 py-2.5 sm:px-5">
+        <div className={HEADER_INNER}>
           <Link
             to="/"
-            className="inline-flex shrink-0 items-center gap-2 font-display text-lg tracking-tight text-foreground"
+            className={headerLogoClass()}
           >
-            <KodamaMark size={28} />
-            <span className="hidden sm:inline">Kodama</span>
-            <span className="text-muted-foreground">/{slug}</span>
+            <KodamaMark size={26} className={`${headerLogoMarkClass()} sm:hidden`} />
+            <KodamaMark size={28} className={`${headerLogoMarkClass()} hidden sm:block`} />
+            <span className={headerLogoTextClass()}>
+              <span className="hidden sm:inline">Kodama Note</span>
+              <span className="sm:hidden">Note</span>
+              <span className="text-muted-foreground">/{slug}</span>
+            </span>
           </Link>
 
           <div className="flex items-center gap-1.5">
@@ -238,7 +254,7 @@ export function Editor({
             <ExpiryPill burnMode={burnMode} expiresAt={expiresAt} />
             <button
               onClick={() => setPreview((v) => !v)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent px-3 text-xs font-medium text-foreground hover:bg-accent/70"
+              className="note-toolbar-btn"
               aria-pressed={preview}
             >
               {preview ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -249,7 +265,7 @@ export function Editor({
                 setFindMode("find");
                 setFindOpen((v) => !v);
               }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent px-3 text-xs font-medium text-foreground hover:bg-accent/70"
+              className="note-toolbar-btn"
               aria-pressed={findOpen}
               title="Find & Replace (⌘F)"
             >
@@ -258,7 +274,7 @@ export function Editor({
             </button>
             <button
               onClick={() => setFocus((v) => !v)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent px-3 text-xs font-medium text-foreground hover:bg-accent/70"
+              className="note-toolbar-btn"
               aria-pressed={focus}
               title="Focus mode"
             >
@@ -276,7 +292,7 @@ export function Editor({
               <div className="relative">
                 <button
                   onClick={() => setExpiryOpen((v) => !v)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent px-3 text-xs font-medium text-foreground hover:bg-accent/70"
+                  className="note-toolbar-btn"
                   aria-haspopup="menu"
                   aria-expanded={expiryOpen}
                   title={`Lifetime: ${BURN_MODES.find((m) => m.value === burnMode)?.label ?? burnMode}`}
@@ -299,7 +315,7 @@ export function Editor({
                     />
                     <div
                       role="menu"
-                      className="absolute right-0 z-40 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-soft"
+                      className="absolute right-0 z-40 mt-1.5 w-56 overflow-hidden rounded-xl border border-border/80 bg-card/95 p-1 shadow-card backdrop-blur-md"
                     >
                       {BURN_MODES.map((m) => (
                         <button
@@ -308,8 +324,8 @@ export function Editor({
                           aria-checked={burnMode === m.value}
                           disabled={expirySaving}
                           onClick={() => changeExpiry(m.value)}
-                          className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-accent ${
-                            burnMode === m.value ? "bg-accent/60" : ""
+                          className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light transition-colors hover:bg-primary/5 ${
+                            burnMode === m.value ? "bg-primary/10" : ""
                           }`}
                         >
                           <span className="mt-0.5">
@@ -335,7 +351,7 @@ export function Editor({
           </div>
         </div>
         {burnMode !== "never" && (
-          <div className="border-t border-border bg-amber-500/5 px-3 py-1.5 text-center text-[11px] text-amber-700 dark:text-amber-300 sm:px-5">
+          <div className="border-t border-border/70 bg-ember/5 px-4 py-1.5 text-center text-[11px] font-light text-ember sm:px-6 lg:px-10">
             {burnMode === "after_read" ? (
               <span className="inline-flex items-center gap-1.5">
                 <Flame className="h-3 w-3" /> Burn after read — page self-destructs after the next visit.
@@ -356,7 +372,7 @@ export function Editor({
         )}
       </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-10 lg:px-10">
         {!focus && (
           <div data-editor-outline="true">
             <Outline text={text} textareaRef={textareaRef} />
@@ -378,7 +394,7 @@ export function Editor({
               placeholder="Start writing… Markdown is supported. Auto-saves as you type."
               spellCheck
               autoFocus
-              className="min-h-[60vh] w-full flex-1 resize-none border-0 bg-transparent text-[17px] leading-[1.7] text-foreground outline-none placeholder:text-muted-foreground/50 sm:text-lg"
+              className="min-h-[60vh] w-full flex-1 resize-none border-0 bg-transparent font-serif text-[17px] font-light leading-[1.75] text-foreground outline-none placeholder:text-muted-foreground/50 sm:text-lg"
             />
           )}
 
@@ -393,9 +409,9 @@ export function Editor({
 
       <footer
         data-editor-chrome="true"
-        className="sticky bottom-0 border-t border-border bg-background/85 backdrop-blur"
+        className="border-t border-border/70 bg-background/85 backdrop-blur-md"
       >
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-3 py-2 text-[11px] text-muted-foreground sm:px-5">
+        <div className={`${HEADER_INNER} py-2 font-mono text-[11px] font-light uppercase tracking-[0.14em] text-muted-foreground`}>
           <div className="flex items-center gap-3">
             <span>{wordCount.toLocaleString()} words</span>
             <span className="hidden sm:inline">·</span>
@@ -433,7 +449,8 @@ export function Editor({
       )}
 
       <DonateRibbon sessionWords={sessionWords} visits={visits} />
-    </div>
+      </div>
+    </NoteShell>
   );
 }
 
@@ -447,7 +464,7 @@ function StatusPill({ status }: { status: SaveStatus }) {
   };
   const v = map[status];
   return (
-    <span className={`inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium ${v.cls}`}>
+    <span className={`inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 font-mono text-[10px] uppercase tracking-[0.12em] ${v.cls}`}>
       {v.icon} {v.label}
     </span>
   );

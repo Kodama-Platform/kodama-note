@@ -38,9 +38,9 @@ export function Outline({
   };
 
   return (
-    <aside className="hidden w-56 shrink-0 border-r border-border pr-4 md:block">
+    <aside className="hidden w-56 shrink-0 border-r border-border/60 pr-4 md:block">
       <div className="sticky top-20">
-        <div className="mb-2 inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        <div className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-clay">
           <ListTree className="h-3 w-3" /> Outline
         </div>
         {headings.length === 0 ? (
@@ -53,7 +53,7 @@ export function Outline({
               <li key={i} style={{ paddingLeft: (h.level - 1) * 10 }}>
                 <button
                   onClick={() => jump(h)}
-                  className="block w-full truncate rounded px-1.5 py-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="block w-full truncate rounded px-1.5 py-1 text-left text-xs font-light text-muted-foreground transition-colors hover:bg-primary/5 hover:text-foreground"
                   title={h.text}
                 >
                   {h.text}

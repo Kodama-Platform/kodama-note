@@ -8,9 +8,11 @@ export function ThreatModelFlow() {
       <ol className="space-y-0">
         {THREAT_MODEL_STEPS.map((step, i) => (
           <li key={step.label}>
-            <div className="rounded-2xl border border-border/80 bg-card/80 px-5 py-4 text-center shadow-card backdrop-blur-sm">
-              <p className="text-base font-semibold text-foreground">{step.label}</p>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{step.detail}</p>
+            <div className="note-card !py-4 text-center">
+              <p className="font-display text-base font-light text-foreground">{step.label}</p>
+              <p className="mt-1 text-sm font-light leading-relaxed text-muted-foreground">
+                {step.detail}
+              </p>
             </div>
             {i < THREAT_MODEL_STEPS.length - 1 && (
               <ArrowDown

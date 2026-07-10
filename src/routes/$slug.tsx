@@ -1,11 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Flame, Loader2, Lock, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
-import { Footer } from "@/components/footer";
-import { SiteHeader } from "@/components/site/site-header";
+import { NoteShell } from "@/components/site/note-shell";
 import { Editor } from "@/components/editor";
 import {
   EncryptionProgress,
@@ -75,22 +74,21 @@ function SlugPage() {
 
   if (!parsed.success) {
     return (
-      <Shell>
-        <Card>
-          <h1 className="font-display text-lg font-light text-foreground">Invalid page name</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+      <GateShell>
+        <NoteCard>
+          <h1 className="font-display text-xl font-light tracking-tight text-foreground sm:text-2xl">
+            Invalid page name
+          </h1>
+          <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground">
             {parsed.error.issues[0]?.message}
           </p>
-          <div className="mt-6">
-            <Link
-              to="/"
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-            >
-              <ArrowLeft className="h-4 w-4" /> Back
+          <div className="mt-8">
+            <Link to="/" className="btn-moss inline-flex items-center gap-2">
+              <ArrowLeft className="h-4 w-4" /> Back home
             </Link>
           </div>
-        </Card>
-      </Shell>
+        </NoteCard>
+      </GateShell>
     );
   }
 
@@ -109,24 +107,28 @@ function PageGate({ slug }: { slug: string }) {
 
   if (q.isLoading) {
     return (
-      <Shell>
-        <Card>
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading page…
+      <GateShell>
+        <NoteCard>
+          <div className="flex items-center gap-3 text-sm font-light text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" /> Opening your place…
           </div>
-        </Card>
-      </Shell>
+        </NoteCard>
+      </GateShell>
     );
   }
 
   if (q.error) {
     return (
-      <Shell>
-        <Card>
-          <h1 className="font-display text-lg font-light text-foreground">Couldn't load this page</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{(q.error as Error).message}</p>
-        </Card>
-      </Shell>
+      <GateShell>
+        <NoteCard>
+          <h1 className="font-display text-xl font-light tracking-tight text-foreground sm:text-2xl">
+            Couldn&apos;t load this page
+          </h1>
+          <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground">
+            {(q.error as Error).message}
+          </p>
+        </NoteCard>
+      </GateShell>
     );
   }
 
@@ -231,69 +233,67 @@ function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }
   }
 
   return (
-    <Shell>
-      <Card>
-        <Badge>New page</Badge>
-        <h1 className="mt-3 font-display text-2xl font-light tracking-tight text-foreground">
-          Create <span className="text-primary">/{slug}</span>
+    <GateShell>
+      <NoteCard>
+        <NoteBadge>New place</NoteBadge>
+        <h1 className="mt-4 font-display text-[1.65rem] font-light leading-tight tracking-tight text-foreground sm:text-3xl">
+          Name your <span className="text-primary">/{slug}</span>
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Your password never leaves your device. We cannot reset it — if you lose it, this page
+        <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground sm:text-base">
+          Your password never leaves your device. We cannot reset it — if you lose it, this place
           cannot be recovered.
         </p>
-        <form onSubmit={submit} className="mt-6 space-y-3">
+        <form onSubmit={submit} className="mt-8 space-y-4">
           <PasswordInput label="Create password" value={pw} onChange={setPw} autoFocus />
           <PasswordInput label="Confirm password" value={pw2} onChange={setPw2} />
 
           <div>
-            <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            <span className="mb-2 block font-mono text-[11px] uppercase tracking-[0.2em] text-clay">
               Lifetime
             </span>
-            <div className="grid gap-1.5">
+            <div className="grid gap-2">
               {BURN_MODES.map((m) => (
                 <label
                   key={m.value}
-                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-left text-sm transition-colors ${
+                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 text-left text-sm transition-colors ${
                     burnMode === m.value
-                      ? "border-primary bg-primary/5"
-                      : "border-input hover:bg-accent/30"
+                      ? "border-primary/50 bg-primary/5"
+                      : "border-border/80 bg-background/40 hover:border-primary/30 hover:bg-primary/[0.03]"
                   }`}
                 >
                   <input
                     type="radio"
                     name="burn"
-                    className="mt-1 accent-current"
+                    className="mt-1 accent-primary"
                     checked={burnMode === m.value}
                     onChange={() => setBurnMode(m.value)}
                   />
                   <span>
                     <span className="flex items-center gap-1.5 font-medium text-foreground">
-                      {m.value === "after_read" && <Flame className="h-3.5 w-3.5" />}
+                      {m.value === "after_read" && <Flame className="h-3.5 w-3.5 text-ember" />}
                       {m.label}
                     </span>
-                    <span className="block text-xs text-muted-foreground">{m.hint}</span>
+                    <span className="mt-0.5 block text-xs font-light text-muted-foreground">
+                      {m.hint}
+                    </span>
                   </span>
                 </label>
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">
+            <p className="mt-3 text-[11px] font-light text-muted-foreground">
               You can change this any time from the editor.
             </p>
           </div>
 
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-          >
+          <button type="submit" disabled={busy} className="btn-moss mt-2 flex h-12 w-full items-center justify-center gap-2 disabled:opacity-60">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-            {busy ? "Securing…" : "Create encrypted page"}
+            {busy ? "Securing your place…" : "Create encrypted page"}
           </button>
 
           {encryptPhase && <EncryptionProgress phase={encryptPhase} />}
         </form>
-      </Card>
-    </Shell>
+      </NoteCard>
+    </GateShell>
   );
 }
 
@@ -330,7 +330,6 @@ function UnlockGate({
     setUnlocked({ key, plaintext });
   };
 
-  // /slug?code=password — auto-unlock when password is in the link.
   useEffect(() => {
     if (!codePassword || unlocked) return;
     let cancelled = false;
@@ -386,44 +385,52 @@ function UnlockGate({
 
   if (codePassword && busy) {
     return (
-      <Shell>
-        <Card>
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Unlocking from link…
+      <GateShell>
+        <NoteCard>
+          <div className="flex items-center gap-3 text-sm font-light text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" /> Unlocking from link…
           </div>
-        </Card>
-      </Shell>
+        </NoteCard>
+      </GateShell>
     );
   }
 
   return (
-    <Shell>
-      <Card>
-        <Badge>{editToken ? "Locked · editable" : "Locked"}</Badge>
-        <h1 className="mt-3 font-display text-2xl font-light tracking-tight text-foreground">
-          <span className="text-primary">/{slug}</span>
+    <GateShell>
+      <NoteCard>
+        <NoteBadge>{editToken ? "Locked · editable" : "Locked"}</NoteBadge>
+        <h1 className="mt-4 font-display text-[1.65rem] font-light leading-tight tracking-tight text-foreground sm:text-3xl">
+          Open <span className="text-primary">/{slug}</span>
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Enter the password to unlock this page.
+        <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground sm:text-base">
+          Enter the password to unlock this place.
         </p>
         {expiryNote && (
-          <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-ember/10 px-3 py-1 text-xs font-light text-ember">
             <Flame className="h-3 w-3" /> {expiryNote}
           </p>
         )}
-        <form onSubmit={submit} className="mt-6 space-y-3">
+        <form onSubmit={submit} className="mt-8 space-y-4">
           <PasswordInput label="Password" value={pw} onChange={setPw} autoFocus />
           <button
             type="submit"
             disabled={busy || !pw}
-            className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+            className="btn-moss mt-2 flex h-12 w-full items-center justify-center gap-2 disabled:opacity-60"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
             {busy ? "Unlocking…" : "Unlock"}
           </button>
         </form>
-      </Card>
-    </Shell>
+      </NoteCard>
+    </GateShell>
+  );
+}
+
+function GateShell({ children }: { children: ReactNode }) {
+  return (
+    <NoteShell centered footer="feature">
+      <div className="w-full max-w-md">{children}</div>
+    </NoteShell>
   );
 }
 
@@ -440,41 +447,25 @@ function PasswordInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="mb-2 block font-mono text-[11px] uppercase tracking-[0.2em] text-clay">
+        {label}
+      </span>
       <input
         type="password"
         autoFocus={autoFocus}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-11 w-full rounded-xl border border-input bg-background px-4 text-sm text-foreground outline-none transition-all focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/20"
+        className="note-input"
         autoComplete="off"
       />
     </label>
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="relative flex min-h-screen flex-col bg-background">
-      <SiteHeader variant="note" />
-      <main className="flex flex-1 items-center justify-center px-6 pb-16 pt-6">
-        <div className="w-full max-w-md">{children}</div>
-      </main>
-      <Footer />
-    </div>
-  );
+function NoteCard({ children }: { children: ReactNode }) {
+  return <div className="note-card">{children}</div>;
 }
 
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-3xl border border-border bg-card p-7 shadow-soft">{children}</div>
-  );
-}
-
-function Badge({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.2em] text-primary">
-      {children}
-    </span>
-  );
+function NoteBadge({ children }: { children: ReactNode }) {
+  return <span className="note-badge">{children}</span>;
 }

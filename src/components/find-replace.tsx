@@ -90,7 +90,7 @@ export function FindReplace({
   };
 
   return (
-    <div className="fixed right-3 top-16 z-40 w-[min(420px,calc(100vw-1.5rem))] rounded-2xl border border-border bg-popover p-3 shadow-soft sm:right-5">
+    <div className="fixed right-3 top-[4.5rem] z-40 w-[min(420px,calc(100vw-1.5rem))] rounded-2xl border border-border/80 bg-card/95 p-3 shadow-card backdrop-blur-md sm:right-5 lg:top-20">
       <div className="flex items-center gap-2">
         <input
           ref={inputRef}
@@ -98,7 +98,7 @@ export function FindReplace({
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKey}
           placeholder="Find"
-          className="h-9 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/20"
+          className="note-input !h-9 flex-1"
         />
         <span className="min-w-[3.5rem] text-right text-[11px] text-muted-foreground">
           {matches.length === 0 ? "0 / 0" : `${index + 1} / ${matches.length}`}
@@ -123,17 +123,17 @@ export function FindReplace({
             onChange={(e) => setReplacement(e.target.value)}
             onKeyDown={onKey}
             placeholder="Replace with"
-            className="h-9 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/20"
+            className="note-input !h-9 flex-1"
           />
           <button
             onClick={replaceOne}
-            className="h-9 rounded-lg bg-accent px-3 text-xs font-medium text-foreground hover:bg-accent/70"
+            className="note-toolbar-btn !h-9"
           >
             Replace
           </button>
           <button
             onClick={replaceAll}
-            className="h-9 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90"
+            className="btn-moss !h-9 !px-3 !py-0 !text-xs"
           >
             All
           </button>
@@ -160,9 +160,7 @@ function IconBtn({
       aria-label={label}
       aria-pressed={pressed}
       title={label}
-      className={`inline-flex h-9 w-9 items-center justify-center rounded-lg text-foreground hover:bg-accent ${
-        pressed ? "bg-accent" : ""
-      }`}
+      className={`note-toolbar-btn !h-9 !w-9 !px-0 ${pressed ? "!border-primary/35 !bg-primary/10" : ""}`}
     >
       {children}
     </button>

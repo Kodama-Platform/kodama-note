@@ -177,7 +177,7 @@ export function PlaceInput({ inputId = "page-name" }: { inputId?: string }) {
 
       <div
         aria-hidden="true"
-        className="mx-auto mt-8 w-full max-w-[560px] rounded-md border border-border/60 bg-card px-5 py-5 text-left shadow-soft sm:mt-12 sm:px-8 sm:py-8 lg:px-10 lg:py-10"
+        className="mx-auto mt-8 w-full max-w-[560px] rounded-2xl border border-border/80 bg-card/80 px-5 py-5 text-left shadow-card backdrop-blur-sm sm:mt-12 sm:px-8 sm:py-8 lg:px-10 lg:py-10"
       >
         <p className="break-all font-mono text-[12px] leading-relaxed text-muted-foreground sm:text-[13px]">
           <span className="inline-flex items-start gap-1.5">
@@ -188,7 +188,7 @@ export function PlaceInput({ inputId = "page-name" }: { inputId?: string }) {
           </span>
         </p>
         <h2
-          className={`mt-4 font-display text-[1.35rem] font-medium leading-snug tracking-tight sm:mt-6 sm:text-2xl lg:text-[30px] ${
+          className={`mt-4 font-display text-[1.35rem] font-light leading-snug tracking-tight sm:mt-6 sm:text-2xl lg:text-[30px] ${
             value ? "text-foreground" : "text-muted-foreground/40"
           }`}
         >

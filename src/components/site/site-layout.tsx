@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { ForestAtmosphere } from "@/components/site/forest-atmosphere";
+import { HEADER_OFFSET } from "@/components/site/header-chrome";
 import { SiteFooter } from "@/components/site/site-footer";
 import { SiteHeader } from "@/components/site/site-header";
 import { SpiritCursor } from "@/components/site/spirit-cursor";
@@ -37,7 +38,7 @@ export function SiteLayout({
 
         <SiteHeader onScrollTo={onScrollTo} />
 
-        <main id="main" className="flex-1 pt-14 sm:pt-16 lg:pt-[72px]">
+        <main id="main" className={`flex-1 ${HEADER_OFFSET}`}>
           {children}
         </main>
 

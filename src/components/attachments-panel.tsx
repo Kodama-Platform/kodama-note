@@ -115,12 +115,12 @@ export function AttachmentsPanel({
   };
 
   return (
-    <div className="rounded-2xl border border-border bg-card/60 p-4">
+      <div className="rounded-2xl border border-border/80 bg-card/50 p-4 backdrop-blur-sm">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Paperclip className="h-4 w-4" />
+        <div className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-clay">
+          <Paperclip className="h-3.5 w-3.5" />
           Attachments
-          <span className="text-xs font-normal text-muted-foreground">({items.length})</span>
+          <span className="font-sans normal-case tracking-normal text-muted-foreground">({items.length})</span>
         </div>
         {editToken && (
           <>
@@ -137,7 +137,7 @@ export function AttachmentsPanel({
             <button
               onClick={() => fileInput.current?.click()}
               disabled={uploading}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-60"
+              className="note-toolbar-btn !text-primary hover:!border-primary/40 hover:!bg-primary/10"
             >
               {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
               {uploading ? "Encrypting…" : "Add file"}
@@ -156,7 +156,7 @@ export function AttachmentsPanel({
             <button
               key={a.id}
               onClick={() => download(a)}
-              className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border hover:bg-background"
+              className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border/60 hover:bg-primary/5"
             >
               {a.mime.startsWith("image/") ? (
                 <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />

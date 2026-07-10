@@ -37,7 +37,7 @@ export function ExportMenu({ slug, text }: { slug: string; text: string }) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent px-3 text-xs font-medium text-foreground hover:bg-accent/70"
+        className="note-toolbar-btn"
         title="Export"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -48,7 +48,7 @@ export function ExportMenu({ slug, text }: { slug: string; text: string }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-40 mt-1.5 w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-soft"
+          className="absolute right-0 z-40 mt-1.5 w-48 overflow-hidden rounded-xl border border-border/80 bg-card/95 p-1 shadow-card backdrop-blur-md"
         >
           <MenuItem icon={<FileCode2 className="h-3.5 w-3.5" />} label="Markdown (.md)" onClick={() => download("md")} />
           <MenuItem icon={<FileText className="h-3.5 w-3.5" />} label="Plain text (.txt)" onClick={() => download("txt")} />
@@ -64,7 +64,7 @@ function MenuItem({ icon, label, onClick }: { icon: React.ReactNode; label: stri
     <button
       role="menuitem"
       onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-accent"
+      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light text-foreground transition-colors hover:bg-primary/5"
     >
       {icon}
       {label}

@@ -26,11 +26,11 @@ export function ProductMockup() {
               <span className="text-muted-foreground">/travel-notes</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="inline-flex h-7 items-center gap-1 rounded-full bg-primary/10 px-2.5 text-[10px] font-medium text-primary">
-                <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+              <span className="note-badge !h-7 !px-2.5 !text-[10px] !normal-case !tracking-normal">
+                <ShieldCheck className="mr-1 h-3 w-3" aria-hidden="true" />
                 Encrypted
               </span>
-              <span className="inline-flex h-7 items-center gap-1 rounded-full bg-accent px-2.5 text-[10px] font-medium text-foreground">
+              <span className="note-toolbar-btn !h-7 !px-2.5 !text-[10px]">
                 <Eye className="h-3 w-3" aria-hidden="true" />
                 Preview
               </span>

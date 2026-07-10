@@ -1,59 +1,51 @@
 import { Outlet, Link, createRootRoute } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { CommandPalette } from "@/components/command-palette";
-
+import { NoteShell } from "@/components/site/note-shell";
 
 function NotFoundComponent() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-6">
-      <div className="max-w-md text-center">
-        <p className="font-mono text-sm font-medium text-primary">404</p>
-        <h1 className="mt-3 font-display text-3xl font-light tracking-tight text-foreground">
+    <NoteShell centered footer="feature">
+      <div className="note-card w-full max-w-md text-center">
+        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-clay">404</p>
+        <h1 className="mt-4 font-display text-[1.65rem] font-light leading-tight tracking-tight text-foreground sm:text-3xl">
           Page not found
         </h1>
-        <p className="mt-3 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist.
+        <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground">
+          The page you&apos;re looking for doesn&apos;t exist.
         </p>
         <div className="mt-8">
-          <Link
-            to="/"
-            className="inline-flex items-center justify-center rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:opacity-90"
-          >
+          <Link to="/" className="btn-moss inline-flex items-center justify-center">
             Back to Kodama
           </Link>
         </div>
       </div>
-    </div>
+    </NoteShell>
   );
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-6">
-      <div className="max-w-md text-center">
-        <h1 className="font-display text-xl font-light tracking-tight text-foreground">
+    <NoteShell centered footer="feature">
+      <div className="note-card w-full max-w-md text-center">
+        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-clay">Error</p>
+        <h1 className="mt-4 font-display text-xl font-light tracking-tight text-foreground sm:text-2xl">
           Something went wrong
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground">
           Try again, or head back to the start.
         </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
-          <button
-            onClick={reset}
-            className="inline-flex items-center justify-center rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-          >
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
+          <button type="button" onClick={reset} className="btn-moss">
             Try again
           </button>
-          <a
-            href="/"
-            className="inline-flex items-center justify-center rounded-full border border-input bg-background px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-          >
+          <a href="/" className="note-toolbar-btn !h-11 !px-5">
             Home
           </a>
         </div>
       </div>
-    </div>
+    </NoteShell>
   );
 }
 

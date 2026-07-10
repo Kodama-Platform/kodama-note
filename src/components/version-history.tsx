@@ -66,9 +66,9 @@ export function VersionHistory({
     <>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent px-3 text-xs font-medium text-foreground hover:bg-accent/70"
+        className="note-toolbar-btn"
       >
-        <History className="h-3.5 w-3.5" /> History
+        <History className="h-3.5 w-3.5" /> <span className="hidden sm:inline">History</span>
       </button>
 
       {open &&
@@ -81,20 +81,20 @@ export function VersionHistory({
               role="dialog"
               aria-modal="true"
               aria-labelledby="version-history-title"
-              className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-soft"
+              className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border/80 bg-card/95 shadow-card backdrop-blur-md"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-border px-5 py-3">
                 <h2
                   id="version-history-title"
-                  className="inline-flex items-center gap-2 text-sm font-semibold text-foreground"
+                  className="inline-flex items-center gap-2 font-display text-base font-light text-foreground"
                 >
                   <History className="h-4 w-4" /> Version history
                 </h2>
                 <button
                   type="button"
                   onClick={close}
-                  className="-mr-1 rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="-mr-1 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-primary/5 hover:text-foreground"
                   aria-label="Close"
                 >
                   <X className="h-4 w-4" />
@@ -117,14 +117,14 @@ export function VersionHistory({
                         <li key={r.id}>
                           <button
                             onClick={() => view(r, label)}
-                            className={`block w-full px-4 py-3 text-left text-xs transition-colors hover:bg-accent ${
-                              preview?.id === r.id ? "bg-accent" : ""
+                            className={`block w-full px-4 py-3 text-left text-xs font-light transition-colors hover:bg-primary/5 ${
+                              preview?.id === r.id ? "bg-primary/10" : ""
                             }`}
                           >
                             <div className="flex items-center justify-between font-medium text-foreground">
                               <span>{label}</span>
                               {i === 0 && (
-                                <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                                <span className="note-badge !px-1.5 !py-0.5 !text-[10px] !normal-case !tracking-normal">
                                   latest
                                 </span>
                               )}
@@ -157,7 +157,7 @@ export function VersionHistory({
                             toast.error((e as Error).message || "Restore failed");
                           }
                         }}
-                        className="mt-5 inline-flex h-9 items-center justify-center rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground hover:opacity-90"
+                        className="btn-moss mt-5 inline-flex h-9 items-center justify-center !px-4 !py-0 !text-xs"
                       >
                         Restore this version
                       </button>

@@ -1,58 +1,33 @@
 import { useEffect, useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ArrowUpRight, Lock, Menu } from "lucide-react";
+import { ArrowUpRight, Menu } from "lucide-react";
 
 import { KodamaMark } from "@/components/kodama-mark";
 import { NoteMobileMenu } from "@/components/site/note-mobile-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  HEADER_INNER,
+  headerLogoClass,
+  headerLogoMarkClass,
+  headerLogoTextClass,
+  headerShellClass,
+  useHeaderScrolled,
+} from "@/components/site/header-chrome";
 import { FOREST_LINKS, NOTE_NAV, sectionHref } from "@/lib/nav";
 
 type SiteHeaderProps = {
-  variant?: "default" | "note";
   onScrollTo?: (id: string) => void;
 };
 
-export function SiteHeader({ variant = "default", onScrollTo }: SiteHeaderProps) {
-  const [scrolled, setScrolled] = useState(false);
+export function SiteHeader({ onScrollTo }: SiteHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const scrolled = useHeaderScrolled();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const onHome = pathname === "/";
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener("scroll", onScroll);
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
-
-  if (variant === "note") {
-    return (
-      <header className="relative z-20 border-b border-border/40 bg-background/70 backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
-          <Link
-            to="/"
-            className="group inline-flex min-w-0 items-center gap-2 font-display text-[15px] tracking-tight text-foreground transition-opacity hover:opacity-80"
-          >
-            <KodamaMark
-              size={22}
-              className="shrink-0 text-primary transition-transform duration-500 group-hover:-translate-y-0.5"
-            />
-            <span className="truncate">Kodama Note</span>
-          </Link>
-          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            <span className="hidden items-center gap-1.5 font-sans text-[12px] text-muted-foreground sm:inline-flex">
-              <Lock className="h-3 w-3" strokeWidth={2} aria-hidden="true" />
-              Private
-            </span>
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
-    );
-  }
 
   const openNote = () => {
     if (onHome && onScrollTo) {
@@ -64,24 +39,12 @@ export function SiteHeader({ variant = "default", onScrollTo }: SiteHeaderProps)
 
   return (
     <>
-      <header
-        className={`fixed inset-x-0 top-0 z-50 transition-all duration-500 ${
-          scrolled || menuOpen
-            ? "border-b border-border/70 bg-background/85 backdrop-blur-md"
-            : "border-b border-transparent bg-transparent"
-        }`}
-      >
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-4 sm:h-16 sm:gap-3 sm:px-6 lg:h-[72px] lg:px-10">
-          <Link to="/" className="group flex min-w-0 items-center gap-2 sm:gap-2.5">
-            <KodamaMark
-              size={26}
-              className="shrink-0 text-primary transition-transform duration-500 group-hover:-translate-y-0.5 sm:hidden"
-            />
-            <KodamaMark
-              size={28}
-              className="hidden shrink-0 text-primary transition-transform duration-500 group-hover:-translate-y-0.5 sm:block"
-            />
-            <span className="truncate font-display text-base tracking-tight text-foreground sm:text-lg lg:text-xl">
+      <header className={headerShellClass(scrolled, menuOpen)}>
+        <div className={HEADER_INNER}>
+          <Link to="/" className={headerLogoClass()}>
+            <KodamaMark size={26} className={`${headerLogoMarkClass()} sm:hidden`} />
+            <KodamaMark size={28} className={`${headerLogoMarkClass()} hidden sm:block`} />
+            <span className={headerLogoTextClass()}>
               <span className="sm:hidden">Note</span>
               <span className="hidden sm:inline">Kodama Note</span>
             </span>
