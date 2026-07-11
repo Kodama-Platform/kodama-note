@@ -4,11 +4,13 @@ import {
   FileCode2,
   Flame,
   Focus,
+  Lock,
   MoreHorizontal,
   Timer,
 } from "lucide-react";
 
 import { BURN_MODES, type BurnMode } from "@/lib/pages";
+import { AUTO_LOCK_OPTIONS, autoLockLabel, type AutoLockDuration } from "@/lib/auto-lock";
 import type { WorkbookPayload } from "@/lib/workbook";
 import { useExportActions } from "@/components/export-menu";
 
@@ -18,6 +20,7 @@ type EditorMoreMenuProps = {
   markdownView: boolean;
   burnMode: BurnMode;
   expirySaving: boolean;
+  autoLockDuration: AutoLockDuration;
   slug: string;
   workbook: WorkbookPayload;
   activeSheetTitle: string;
@@ -25,6 +28,8 @@ type EditorMoreMenuProps = {
   onToggleFocus: () => void;
   onToggleMarkdownView: () => void;
   onChangeExpiry: (mode: BurnMode) => void;
+  onChangeAutoLockDuration: (duration: AutoLockDuration) => void;
+  onLockNow?: () => void;
   onOpenChange?: (open: boolean) => void;
 };
 
@@ -34,6 +39,7 @@ export function EditorMoreMenu({
   markdownView,
   burnMode,
   expirySaving,
+  autoLockDuration,
   slug,
   workbook,
   activeSheetTitle,
@@ -41,6 +47,8 @@ export function EditorMoreMenu({
   onToggleFocus,
   onToggleMarkdownView,
   onChangeExpiry,
+  onChangeAutoLockDuration,
+  onLockNow,
   onOpenChange,
 }: EditorMoreMenuProps) {
   const [open, setOpen] = useState(false);
@@ -115,6 +123,55 @@ export function EditorMoreMenu({
             {exportActions.items.map((item) => (
               <MenuItem key={item.label} icon={item.icon} label={item.label} onClick={item.onClick} />
             ))}
+
+            {onLockNow && (
+              <>
+                <div className="my-1 border-t border-border/60" role="separator" />
+                <p className="px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Security
+                </p>
+                <MenuItem
+                  icon={<Lock className="h-3.5 w-3.5" />}
+                  label="Lock now"
+                  onClick={() => {
+                    onLockNow();
+                    setMenuOpen(false);
+                  }}
+                />
+                <p className="px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Auto-lock
+                </p>
+                {AUTO_LOCK_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={autoLockDuration === option.value}
+                    onClick={() => {
+                      onChangeAutoLockDuration(option.value);
+                      setMenuOpen(false);
+                    }}
+                    className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light transition-colors hover:bg-primary/5 ${
+                      autoLockDuration === option.value ? "bg-primary/10" : ""
+                    }`}
+                  >
+                    <span className="mt-0.5 text-primary">
+                      <Lock className="h-3 w-3" />
+                    </span>
+                    <span className="flex-1">
+                      <span className="block font-medium text-foreground">{option.label}</span>
+                      <span className="block text-[11px] text-muted-foreground">{option.hint}</span>
+                    </span>
+                    {autoLockDuration === option.value && (
+                      <Check className="mt-0.5 h-3 w-3 text-primary" />
+                    )}
+                  </button>
+                ))}
+                <p className="px-2.5 pb-1 text-[10px] font-light text-muted-foreground">
+                  Currently {autoLockLabel(autoLockDuration).toLowerCase()}
+                </p>
+              </>
+            )}
 
             {canEdit && (
               <>

@@ -7,6 +7,7 @@ import {
   CloudOff,
   Flame,
   Loader2,
+  Lock,
   Menu,
   Pencil,
   RotateCcw,
@@ -39,9 +40,18 @@ import { RichEditor, type RichEditorHandle } from "@/components/rich-editor";
 import { DonateRibbon, useVisitCount } from "@/components/donate-ribbon";
 import { SheetTabBar } from "@/components/sheet-tab-bar";
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
+import { useAutoLock } from "@/hooks/use-auto-lock";
 import { invalidateAttachmentList, prefetchAttachmentList } from "@/lib/attachment-list";
+import {
+  autoLockLabel,
+  getAutoLockDuration,
+  setAutoLockDuration,
+  type AutoLockDuration,
+} from "@/lib/auto-lock";
 import { encrypt } from "@/lib/crypto";
+import type { LockReason } from "@/lib/lock-session";
 import { getSaveMode, setSaveMode, type SaveMode } from "@/lib/save-mode";
+import type { UnlockCapability } from "@/lib/unlock-capability";
 import { setSheetHash } from "@/lib/hash-params";
 import { deleteAttachment, savePage, updateExpiry, type BurnMode } from "@/lib/pages";
 import { flushActiveSheetMarkdown } from "@/lib/workbook-flush";
@@ -82,6 +92,8 @@ export function Editor({
   editToken,
   burnMode: initialBurnMode,
   expiresAt: initialExpiresAt,
+  unlockCapability: _unlockCapability,
+  onLock,
 }: {
   slug: string;
   initialWorkbook: WorkbookPayload;
@@ -91,11 +103,17 @@ export function Editor({
   editToken: string | null;
   burnMode: BurnMode;
   expiresAt: string | null;
+  unlockCapability?: UnlockCapability;
+  onLock?: (reason: LockReason) => void;
 }) {
+  void _unlockCapability;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const canSave = !!editToken;
   const [saveMode, setSaveModeState] = useState<SaveMode>(() => getSaveMode());
+  const [autoLockDuration, setAutoLockDurationState] = useState<AutoLockDuration>(() =>
+    getAutoLockDuration(),
+  );
   const [saveModeOpen, setSaveModeOpen] = useState(false);
   const [leavePrompt, setLeavePrompt] = useState<LeavePrompt | null>(null);
   const [leaveSaving, setLeaveSaving] = useState(false);
@@ -118,6 +136,8 @@ export function Editor({
   const [isDirty, setIsDirty] = useState(false);
   const isDirtyRef = useRef(false);
   const editGenerationRef = useRef(0);
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null);
+  const lockingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const richEditorRef = useRef<RichEditorHandle | null>(null);
   const editorSyncedRef = useRef(false);
@@ -169,6 +189,27 @@ export function Editor({
     setSaveModeOpen(false);
     toast.success(mode === "auto" ? "Auto-save enabled" : "Manual save enabled");
   }, []);
+
+  const changeAutoLockDuration = useCallback((duration: AutoLockDuration) => {
+    setAutoLockDuration(duration);
+    setAutoLockDurationState(duration);
+    toast.success(
+      duration === "never"
+        ? "Auto-lock disabled"
+        : `Auto-lock set to ${autoLockLabel(duration)}`,
+    );
+  }, []);
+
+  const autoLockMs = useMemo(() => {
+    const map: Record<AutoLockDuration, number | null> = {
+      "5m": 5 * 60 * 1000,
+      "15m": 15 * 60 * 1000,
+      "30m": 30 * 60 * 1000,
+      "1h": 60 * 60 * 1000,
+      never: null,
+    };
+    return map[autoLockDuration];
+  }, [autoLockDuration]);
 
   const toggleMarkdownView = useCallback(() => {
     setMarkdownView((on) => {
@@ -240,44 +281,88 @@ export function Editor({
       workbook?: WorkbookPayload;
       skipFlush?: boolean;
     }): Promise<boolean> => {
-      if (!editToken) return false;
-      const payload =
-        opts?.skipFlush && opts.workbook != null
-          ? opts.workbook
-          : flushWorkbook(opts?.workbook);
-      let plaintext: string;
+      const run = async (): Promise<boolean> => {
+        if (!editToken) return false;
+        const payload =
+          opts?.skipFlush && opts.workbook != null
+            ? opts.workbook
+            : flushWorkbook(opts?.workbook);
+        let plaintext: string;
+        try {
+          plaintext = serializeWorkbook(payload);
+        } catch (e) {
+          setStatus("error");
+          const code = e instanceof WorkbookError ? e.code : (e as Error).message;
+          toast.error(
+            code === "workbook_too_large" || code === "sheet_too_large"
+              ? "Workbook is too large to save"
+              : (e as Error).message,
+          );
+          return false;
+        }
+        if (!opts?.force && !isDirtyRef.current && plaintext === lastSavedRef.current) {
+          markSaved(plaintext, payload, editGenerationRef.current);
+          return true;
+        }
+        const generationAtSaveStart = editGenerationRef.current;
+        setStatus("saving");
+        try {
+          const { ciphertext, iv } = await encrypt(cryptoKey, plaintext);
+          const res = await savePage({ slug, edit_token: editToken, ciphertext, iv });
+          markSaved(plaintext, payload, generationAtSaveStart);
+          setUpdatedAt(res.created_at);
+          return true;
+        } catch (e) {
+          setStatus("error");
+          toast.error((e as Error).message);
+          return false;
+        }
+      };
+
+      const promise = run();
+      saveInFlightRef.current = promise;
       try {
-        plaintext = serializeWorkbook(payload);
-      } catch (e) {
-        setStatus("error");
-        const code = e instanceof WorkbookError ? e.code : (e as Error).message;
-        toast.error(
-          code === "workbook_too_large" || code === "sheet_too_large"
-            ? "Workbook is too large to save"
-            : (e as Error).message,
-        );
-        return false;
-      }
-      if (!opts?.force && !isDirtyRef.current && plaintext === lastSavedRef.current) {
-        markSaved(plaintext, payload, editGenerationRef.current);
-        return true;
-      }
-      const generationAtSaveStart = editGenerationRef.current;
-      setStatus("saving");
-      try {
-        const { ciphertext, iv } = await encrypt(cryptoKey, plaintext);
-        const res = await savePage({ slug, edit_token: editToken, ciphertext, iv });
-        markSaved(plaintext, payload, generationAtSaveStart);
-        setUpdatedAt(res.created_at);
-        return true;
-      } catch (e) {
-        setStatus("error");
-        toast.error((e as Error).message);
-        return false;
+        return await promise;
+      } finally {
+        if (saveInFlightRef.current === promise) {
+          saveInFlightRef.current = null;
+        }
       }
     },
     [cryptoKey, editToken, flushWorkbook, markSaved, slug],
   );
+
+  const prepareForLock = useCallback(async () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (saveInFlightRef.current) {
+      await saveInFlightRef.current;
+    } else if (canSave && isDirtyRef.current) {
+      await save();
+    }
+  }, [canSave, save]);
+
+  const handleLockNow = useCallback(
+    async (reason: LockReason) => {
+      if (!onLock || lockingRef.current) return;
+      lockingRef.current = true;
+      try {
+        await prepareForLock();
+        onLock(reason);
+      } finally {
+        lockingRef.current = false;
+      }
+    },
+    [onLock, prepareForLock],
+  );
+
+  useAutoLock({
+    enabled: !!onLock,
+    durationMs: autoLockMs,
+    onInactive: () => void handleLockNow("inactivity"),
+  });
 
   const applyLastSaved = useCallback(() => {
     const restored = parseWorkbook(lastSavedRef.current);
@@ -725,12 +810,24 @@ export function Editor({
               <Search className="h-3.5 w-3.5" />
               <span className="hidden lg:inline">Find</span>
             </button>
+            {onLock && (
+              <button
+                type="button"
+                onClick={() => void handleLockNow("manual")}
+                className="note-toolbar-btn"
+                title="Lock now"
+              >
+                <Lock className="h-3.5 w-3.5" />
+                <span className="hidden lg:inline">Lock</span>
+              </button>
+            )}
             <EditorMoreMenu
               canEdit={!!editToken}
               focus={focus}
               markdownView={markdownView}
               burnMode={burnMode}
               expirySaving={expirySaving}
+              autoLockDuration={autoLockDuration}
               slug={slug}
               workbook={workbook}
               activeSheetTitle={
@@ -743,6 +840,8 @@ export function Editor({
               }}
               onToggleMarkdownView={toggleMarkdownView}
               onChangeExpiry={changeExpiry}
+              onChangeAutoLockDuration={changeAutoLockDuration}
+              onLockNow={onLock ? () => void handleLockNow("manual") : undefined}
               onOpenChange={setMoreMenuOpen}
             />
             <ThemeToggle />
@@ -781,6 +880,9 @@ export function Editor({
           }}
           onToggleMarkdownView={toggleMarkdownView}
           onChangeExpiry={changeExpiry}
+          autoLockDuration={autoLockDuration}
+          onChangeAutoLockDuration={changeAutoLockDuration}
+          onLockNow={onLock ? () => void handleLockNow("manual") : undefined}
         />
 
         {burnMode !== "never" && (

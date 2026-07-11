@@ -6,6 +6,7 @@ import {
   Flame,
   Focus,
   Loader2,
+  Lock,
   Pencil,
   RotateCcw,
   Save,
@@ -16,6 +17,7 @@ import {
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BURN_MODES, type BurnMode } from "@/lib/pages";
+import { AUTO_LOCK_OPTIONS, autoLockLabel, type AutoLockDuration } from "@/lib/auto-lock";
 import type { SaveMode } from "@/lib/save-mode";
 import type { WorkbookPayload } from "@/lib/workbook";
 import { useExportActions } from "@/components/export-menu";
@@ -46,6 +48,9 @@ type EditorMobileMenuProps = {
   onToggleFocus: () => void;
   onToggleMarkdownView: () => void;
   onChangeExpiry: (mode: BurnMode) => void;
+  autoLockDuration: AutoLockDuration;
+  onChangeAutoLockDuration: (duration: AutoLockDuration) => void;
+  onLockNow?: () => void;
 };
 
 export function EditorMobileMenu({
@@ -72,6 +77,9 @@ export function EditorMobileMenu({
   onToggleFocus,
   onToggleMarkdownView,
   onChangeExpiry,
+  autoLockDuration,
+  onChangeAutoLockDuration,
+  onLockNow,
 }: EditorMobileMenuProps) {
   const exportActions = useExportActions({
     slug,
@@ -252,6 +260,44 @@ export function EditorMobileMenu({
                   }}
                 />
               ))}
+            </section>
+          )}
+
+          {onLockNow && (
+            <section className="space-y-2">
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                Security
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  onLockNow();
+                  onClose();
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-border/70 px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-primary/5"
+              >
+                <Lock className="h-4 w-4 text-primary" />
+                Lock now
+              </button>
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                Auto-lock · {autoLockLabel(autoLockDuration)}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {AUTO_LOCK_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => onChangeAutoLockDuration(option.value)}
+                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
+                      autoLockDuration === option.value
+                        ? "border-primary/40 bg-primary/10 text-foreground"
+                        : "border-border/70 text-muted-foreground"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </section>
           )}
 

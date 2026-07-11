@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Flame, Loader2, Lock, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Flame, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
+import { LockedScreen } from "@/components/locked-screen";
 import { NoteShell } from "@/components/site/note-shell";
 import { Editor } from "@/components/editor";
 import {
@@ -21,8 +22,13 @@ import {
   unlockErrorMessage,
   type KdfParams,
 } from "@/lib/crypto";
+import { clearDecryptedSession, type LockReason } from "@/lib/lock-session";
 import { BURN_MODES, createPage, getPage, type BurnMode, type GetPageResult } from "@/lib/pages";
 import { pageQueryKey, type ExistingPage } from "@/lib/page-query";
+import {
+  resolveUnlockCapability,
+  type UnlockCapability,
+} from "@/lib/unlock-capability";
 import {
   createEmptyWorkbook,
   parseWorkbook,
@@ -70,6 +76,49 @@ function useEditToken(slug: string): string | null {
     return () => window.removeEventListener("hashchange", sync);
   }, [slug]);
   return token;
+}
+
+type UnlockedSession = {
+  key: CryptoKey;
+  plaintext: string;
+  updatedAt: string;
+  capability: UnlockCapability;
+};
+
+function UnlockedEditor({
+  slug,
+  session,
+  editToken,
+  burnMode,
+  expiresAt,
+  onLock,
+}: {
+  slug: string;
+  session: UnlockedSession;
+  editToken: string | null;
+  burnMode: BurnMode;
+  expiresAt: string | null;
+  onLock: (reason: LockReason) => void;
+}) {
+  const workbook = useMemo(() => parseWorkbook(session.plaintext), [session.plaintext]);
+  const preferred =
+    getSheetIdFromHash() ?? readLastOpenedSheet(slug) ?? workbook.primary_sheet_id;
+  const initialActiveSheetId = resolveInitialSheetId(workbook, preferred);
+
+  return (
+    <Editor
+      slug={slug}
+      initialWorkbook={workbook}
+      initialActiveSheetId={initialActiveSheetId}
+      initialUpdatedAt={session.updatedAt}
+      cryptoKey={session.key}
+      editToken={editToken}
+      burnMode={burnMode}
+      expiresAt={expiresAt}
+      unlockCapability={session.capability}
+      onLock={onLock}
+    />
+  );
 }
 
 function SlugPage() {
@@ -177,17 +226,84 @@ function PageGate({ slug }: { slug: string }) {
 }
 
 function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }) {
+  const queryClient = useQueryClient();
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [burnMode, setBurnMode] = useState<BurnMode>("never");
   const [busy, setBusy] = useState(false);
   const [encryptPhase, setEncryptPhase] = useState<EncryptionPhase | null>(null);
-  const [created, setCreated] = useState<{
-    editToken: string;
-    expiresAt: string | null;
-    key: CryptoKey;
-    updatedAt: string;
-  } | null>(null);
+  const [session, setSession] = useState<UnlockedSession | null>(null);
+  const [lockReason, setLockReason] = useState<LockReason | null>(null);
+  const [unlockPw, setUnlockPw] = useState("");
+  const [unlockBusy, setUnlockBusy] = useState(false);
+  const [createdExpiresAt, setCreatedExpiresAt] = useState<string | null>(null);
+  const capabilityRef = useRef<UnlockCapability>("editor");
+
+  const endSession = useCallback(
+    (reason: LockReason) => {
+      clearDecryptedSession(slug, queryClient);
+      setSession(null);
+      setLockReason(reason);
+      setUnlockPw("");
+      if (reason === "inactivity") {
+        toast.info("Locked due to inactivity");
+      }
+    },
+    [queryClient, slug],
+  );
+
+  const unlockAfterLock = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!unlockPw) return;
+    setUnlockBusy(true);
+    try {
+      const loaded = await getPage(slug);
+      if (!loaded.exists) throw new Error("Page not found");
+      const key = await deriveKey(unlockPw, loaded.salt, loaded.kdf_params as KdfParams);
+      const plaintext = await decrypt(key, loaded.ciphertext, loaded.iv);
+      capabilityRef.current = resolveUnlockCapability(readEditToken(slug), false);
+      setSession({
+        key,
+        plaintext,
+        updatedAt: loaded.updated_at,
+        capability: capabilityRef.current,
+      });
+      setLockReason(null);
+      setUnlockPw("");
+      onCreated();
+    } catch (err) {
+      toast.error(unlockErrorMessage(err));
+    } finally {
+      setUnlockBusy(false);
+    }
+  };
+
+  if (session) {
+    return (
+      <UnlockedEditor
+        slug={slug}
+        session={session}
+        editToken={readEditToken(slug)}
+        burnMode={burnMode}
+        expiresAt={createdExpiresAt}
+        onLock={endSession}
+      />
+    );
+  }
+
+  if (lockReason) {
+    return (
+      <LockedScreen
+        slug={slug}
+        capability={capabilityRef.current}
+        reason={lockReason}
+        busy={unlockBusy}
+        password={unlockPw}
+        onPasswordChange={setUnlockPw}
+        onSubmit={(e) => void unlockAfterLock(e)}
+      />
+    );
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -227,11 +343,14 @@ function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }
       }
       history.replaceState(null, "", window.location.pathname);
       setEncryptPhase("done");
-      setCreated({
-        editToken: res.edit_token,
-        expiresAt: res.expires_at,
+      onCreated();
+      capabilityRef.current = "editor";
+      setCreatedExpiresAt(res.expires_at);
+      setSession({
         key,
+        plaintext: serializeWorkbook(createEmptyWorkbook()),
         updatedAt: new Date().toISOString(),
+        capability: "editor",
       });
     } catch (err) {
       toast.error((err as Error).message || "Could not create page");
@@ -240,22 +359,6 @@ function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }
       setEncryptPhase(null);
     }
   };
-
-  if (created) {
-    const workbook = createEmptyWorkbook();
-    return (
-      <Editor
-        slug={slug}
-        initialWorkbook={workbook}
-        initialActiveSheetId={workbook.primary_sheet_id}
-        initialUpdatedAt={created.updatedAt}
-        cryptoKey={created.key}
-        editToken={created.editToken}
-        burnMode={burnMode}
-        expiresAt={created.expiresAt}
-      />
-    );
-  }
 
   return (
     <GateShell>
@@ -335,24 +438,51 @@ function UnlockGate({
   codePassword?: string;
   editToken: string | null;
 }) {
+  const queryClient = useQueryClient();
+  const [session, setSession] = useState<UnlockedSession | null>(null);
+  const [lockReason, setLockReason] = useState<LockReason | null>(null);
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(!!codePassword);
-  const [unlocked, setUnlocked] = useState<{ key: CryptoKey; plaintext: string; updatedAt: string } | null>(null);
+  const capabilityRef = useRef<UnlockCapability>(
+    resolveUnlockCapability(editToken, !!codePassword),
+  );
 
-  const unlockWithPassword = async (password: string) => {
+  const unlockWithPassword = async (password: string, viaShareLink = false) => {
     const loaded = page ?? (await ensurePage());
     const key = await deriveKey(password, loaded.salt, loaded.kdf_params as KdfParams);
     const plaintext = await decrypt(key, loaded.ciphertext, loaded.iv);
-    setUnlocked({ key, plaintext, updatedAt: loaded.updated_at });
+    const capability = resolveUnlockCapability(editToken, viaShareLink);
+    capabilityRef.current = capability;
+    setSession({
+      key,
+      plaintext,
+      updatedAt: loaded.updated_at,
+      capability,
+    });
+    setLockReason(null);
+    setPw("");
   };
 
+  const endSession = useCallback(
+    (reason: LockReason) => {
+      clearDecryptedSession(slug, queryClient);
+      setSession(null);
+      setLockReason(reason);
+      setPw("");
+      if (reason === "inactivity") {
+        toast.info("Locked due to inactivity");
+      }
+    },
+    [queryClient, slug],
+  );
+
   useEffect(() => {
-    if (!codePassword || unlocked) return;
+    if (!codePassword || session) return;
     let cancelled = false;
     (async () => {
       setBusy(true);
       try {
-        await unlockWithPassword(codePassword);
+        await unlockWithPassword(codePassword, true);
         stripCodeFromUrl();
       } catch (err) {
         if (cancelled) return;
@@ -373,7 +503,7 @@ function UnlockGate({
     if (!pw) return;
     setBusy(true);
     try {
-      await unlockWithPassword(pw);
+      await unlockWithPassword(pw, false);
     } catch (err) {
       if (err instanceof PageNotFoundError) return;
       toast.error(unlockErrorMessage(err));
@@ -389,55 +519,31 @@ function UnlockGate({
     return null;
   }, [page]);
 
-  if (unlocked) {
-    const workbook = parseWorkbook(unlocked.plaintext);
-    const preferred =
-      getSheetIdFromHash() ?? readLastOpenedSheet(slug) ?? workbook.primary_sheet_id;
-    const initialActiveSheetId = resolveInitialSheetId(workbook, preferred);
-    const burnMode = page?.burn_mode ?? "never";
-    const expiresAt = page?.expires_at ?? null;
+  if (session) {
     return (
-      <Editor
+      <UnlockedEditor
         slug={slug}
-        initialWorkbook={workbook}
-        initialActiveSheetId={initialActiveSheetId}
-        initialUpdatedAt={unlocked.updatedAt}
-        cryptoKey={unlocked.key}
+        session={session}
         editToken={editToken}
-        burnMode={burnMode}
-        expiresAt={expiresAt}
+        burnMode={page?.burn_mode ?? "never"}
+        expiresAt={page?.expires_at ?? null}
+        onLock={endSession}
       />
     );
   }
 
   return (
-    <GateShell>
-      <NoteCard>
-        <NoteBadge>{editToken ? "Locked · editable" : "Locked"}</NoteBadge>
-        <h1 className="mt-4 font-display text-[1.65rem] font-light leading-tight tracking-tight text-foreground sm:text-3xl">
-          Open <span className="text-primary">/{slug}</span>
-        </h1>
-        <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground sm:text-base">
-          Enter the password to unlock this place.
-        </p>
-        {expiryNote && (
-          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-ember/10 px-3 py-1 text-xs font-light text-ember">
-            <Flame className="h-3 w-3" /> {expiryNote}
-          </p>
-        )}
-        <form onSubmit={submit} className="mt-8 space-y-4">
-          <PasswordInput label="Password" value={pw} onChange={setPw} autoFocus={!codePassword} />
-          <button
-            type="submit"
-            disabled={busy || (!pw && !codePassword)}
-            className="btn-moss mt-2 flex h-12 w-full items-center justify-center gap-2 disabled:opacity-60"
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-            {busy ? (codePassword ? "Unlocking from link…" : "Unlocking…") : "Unlock"}
-          </button>
-        </form>
-      </NoteCard>
-    </GateShell>
+    <LockedScreen
+      slug={slug}
+      capability={capabilityRef.current}
+      reason={lockReason ?? undefined}
+      busy={busy}
+      password={pw}
+      onPasswordChange={setPw}
+      onSubmit={submit}
+      expiryNote={expiryNote}
+      autoFocusPassword={!codePassword}
+    />
   );
 }
 
