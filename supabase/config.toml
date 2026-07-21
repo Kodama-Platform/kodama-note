@@ -1,1 +1,7 @@
 project_id = "nghydpuauwcsuptqhyae"
+
+[functions.ksp-append-version]
+verify_jwt = false
+
+[functions.ksp-create-page]
+verify_jwt = false

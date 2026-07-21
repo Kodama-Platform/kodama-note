@@ -6,20 +6,24 @@ const describeVersioning = VERSIONING_ENABLED ? describe : describe.skip;
 
 const appendCalls: Array<{
   slug: string;
-  edit_token: string;
   ciphertext: string;
   iv: string;
+  ksp: boolean;
 }> = [];
+
+vi.mock("@/lib/legacy-edit", () => ({
+  readLegacyEditToken: vi.fn(() => "legacy-edit-token"),
+}));
 
 vi.mock("@/lib/pages", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pages")>();
   return {
     ...actual,
-    appendVersion: vi.fn(async (args: {
+    savePage: vi.fn(async (args: {
       slug: string;
-      edit_token: string;
       ciphertext: string;
       iv: string;
+      ksp: boolean;
     }) => {
       appendCalls.push(args);
       return { id: `v-${appendCalls.length}`, created_at: new Date().toISOString() };
@@ -39,17 +43,25 @@ vi.mock("@/lib/pages", async (importOriginal) => {
   };
 });
 
-vi.mock("@/lib/crypto", () => ({
-  encrypt: vi.fn(async (_key: unknown, plaintext: string) => ({
+vi.mock("@/lib/crypto-context", () => ({
+  encryptPlaceWorkbookForSave: vi.fn(async (_session: unknown, plaintext: string) => ({
+    ciphertext: `CT(${plaintext})`,
+    iv: "IV",
+    session: _session,
+  })),
+  encryptPlaceText: vi.fn(async (_session: unknown, plaintext: string) => ({
     ciphertext: `CT(${plaintext})`,
     iv: "IV",
   })),
-  decrypt: vi.fn(async (_key: unknown, ct: string) => {
+  decryptPlaceText: vi.fn(async (_session: unknown, ct: string) => {
     if (ct === "OLD_CIPHERTEXT") return "old plaintext from history";
     return "current plaintext";
   }),
-  encryptBytes: vi.fn(),
-  decryptBytes: vi.fn(),
+  encryptPlaceBytes: vi.fn(),
+  decryptPlaceBytes: vi.fn(),
+}));
+
+vi.mock("@/lib/crypto", () => ({
   randomPath: vi.fn(() => "rand"),
   toB64: vi.fn(),
   fromB64: vi.fn(),
@@ -125,15 +137,15 @@ vi.mock("sonner", () => ({
 }));
 
 import { Editor } from "@/components/editor";
-import { appendVersion } from "@/lib/pages";
+import { savePage } from "@/lib/pages";
 import { toast } from "sonner";
 import { migrateLegacyMarkdown, parseWorkbook } from "@/lib/workbook";
 
-const fakeKey = {} as CryptoKey;
+const legacyCrypto = { kind: "legacy" as const, cryptoKey: {} as CryptoKey };
 
 beforeEach(() => {
   appendCalls.length = 0;
-  vi.mocked(appendVersion).mockClear();
+  vi.mocked(savePage).mockClear();
   vi.mocked(toast.success).mockClear();
   let n = 0;
   vi.stubGlobal("crypto", {
@@ -153,8 +165,7 @@ describeVersioning("Editor — restoreVersion is strictly append-only", () => {
         initialWorkbook={workbook}
         initialActiveSheetId={workbook.primary_sheet_id}
         initialUpdatedAt={new Date().toISOString()}
-        cryptoKey={fakeKey}
-        editToken="edit-token-123"
+        crypto={legacyCrypto}
         burnMode="never"
         expiresAt={null}
       />,
@@ -173,7 +184,7 @@ describeVersioning("Editor — restoreVersion is strictly append-only", () => {
     });
 
     await waitFor(() => {
-      expect(appendVersion).toHaveBeenCalledTimes(1);
+      expect(savePage).toHaveBeenCalledTimes(1);
     });
 
     const restored = parseWorkbook("old plaintext from history");
@@ -182,8 +193,8 @@ describeVersioning("Editor — restoreVersion is strictly append-only", () => {
     expect(appendCalls).toHaveLength(1);
     expect(appendCalls[0]).toMatchObject({
       slug: "travel-plans",
-      edit_token: "edit-token-123",
       iv: "IV",
+      ksp: false,
     });
     expect(appendCalls[0].ciphertext).toContain(expectedMarkdown);
     expect(appendCalls[0].ciphertext).toMatch(/^CT\(\{/);
@@ -205,8 +216,7 @@ describeVersioning("Editor — restoreVersion is strictly append-only", () => {
         initialWorkbook={workbook}
         initialActiveSheetId={workbook.primary_sheet_id}
         initialUpdatedAt={new Date().toISOString()}
-        cryptoKey={fakeKey}
-        editToken="edit-token-xyz"
+        crypto={legacyCrypto}
         burnMode="never"
         expiresAt={null}
       />,
@@ -223,7 +233,7 @@ describeVersioning("Editor — restoreVersion is strictly append-only", () => {
     });
 
     await waitFor(() => {
-      expect(appendVersion).toHaveBeenCalledTimes(1);
+      expect(savePage).toHaveBeenCalledTimes(1);
     });
   });
 });

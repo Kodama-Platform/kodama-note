@@ -12,23 +12,16 @@ import {
   type EncryptionPhase,
 } from "@/components/encryption-progress";
 import { slugSchema } from "@/lib/slug";
-import { getHashParams, getSheetIdFromHash, stripCodeFromUrl } from "@/lib/hash-params";
-import {
-  DEFAULT_KDF_PARAMS,
-  decrypt,
-  deriveKey,
-  encrypt,
-  newSalt,
-  unlockErrorMessage,
-  type KdfParams,
-} from "@/lib/crypto";
+import { getSheetIdFromHash, migrateCodeToHash, readUnlockCode, stripCodeFromUrl, stripSensitiveHashParams } from "@/lib/hash-params";
+import { kspSessionFromSecrets, type PlaceCryptoSession } from "@/lib/crypto-context";
 import { clearDecryptedSession, type LockReason } from "@/lib/lock-session";
 import { BURN_MODES, createPage, getPage, type BurnMode, type GetPageResult } from "@/lib/pages";
 import { pageQueryKey, type ExistingPage } from "@/lib/page-query";
-import {
-  resolveUnlockCapability,
-  type UnlockCapability,
-} from "@/lib/unlock-capability";
+import { resolveUnlockCapability, type UnlockCapability } from "@/lib/unlock-capability";
+import { editorSecretsFromFragment, getFragmentCapability, parseEditorCapabilityImport } from "@/lib/ksp-fragment";
+import { createKspPlace, isKspPlaceMeta } from "@/lib/ksp-place";
+import { readKspSecrets, writeKspSecrets } from "@/lib/ksp-secrets";
+import { unlockErrorMessage, unlockPlace, unlockPlaceWithEditorImport } from "@/lib/unlock-place";
 import {
   createEmptyWorkbook,
   parseWorkbook,
@@ -46,56 +39,49 @@ export const Route = createFileRoute("/$slug")({
   component: SlugPage,
 });
 
-const EDIT_TOKEN_KEY = (slug: string) => `kodama-edit-${slug}`;
-
-function readEditToken(slug: string): string | null {
-  if (typeof window === "undefined") return null;
-  const params = getHashParams();
-  const fromHash = params.get("edit");
-  if (fromHash) {
-    try {
-      localStorage.setItem(EDIT_TOKEN_KEY(slug), fromHash);
-    } catch {
-      /* ignore */
-    }
-    return fromHash;
-  }
-  try {
-    return localStorage.getItem(EDIT_TOKEN_KEY(slug));
-  } catch {
-    return null;
-  }
+function initialUnlockCapability(slug: string, viaShareLink: boolean): UnlockCapability {
+  const secrets = readKspSecrets(slug);
+  const editorFragment = editorSecretsFromFragment();
+  return resolveUnlockCapability({
+    hasEditorSecrets: !!(secrets?.editorPrivateKey || editorFragment?.editorPrivateKey),
+    hasReadCapability: viaShareLink || !!getFragmentCapability("read"),
+  });
 }
 
-function useEditToken(slug: string): string | null {
-  const [token, setToken] = useState<string | null>(() => readEditToken(slug));
-  useEffect(() => {
-    const sync = () => setToken(readEditToken(slug));
-    sync();
-    window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
-  }, [slug]);
-  return token;
+/** Persist `#editor=` + `#read=` fragments into session secrets (KSP import via URL). */
+function importEditorFragment(slug: string): void {
+  const imported = editorSecretsFromFragment();
+  if (!imported) return;
+  const existing = readKspSecrets(slug);
+  writeKspSecrets(slug, {
+    readerCapability: imported.readerCapability,
+    editorPrivateKey: imported.editorPrivateKey,
+    ownerPrivateKey: existing?.ownerPrivateKey ?? "",
+  });
 }
 
 type UnlockedSession = {
-  key: CryptoKey;
+  crypto: PlaceCryptoSession;
   plaintext: string;
   updatedAt: string;
   capability: UnlockCapability;
 };
 
+type FreshCreateSession = {
+  session: UnlockedSession;
+  burnMode: BurnMode;
+  expiresAt: string | null;
+};
+
 function UnlockedEditor({
   slug,
   session,
-  editToken,
   burnMode,
   expiresAt,
   onLock,
 }: {
   slug: string;
   session: UnlockedSession;
-  editToken: string | null;
   burnMode: BurnMode;
   expiresAt: string | null;
   onLock: (reason: LockReason) => void;
@@ -111,8 +97,7 @@ function UnlockedEditor({
       initialWorkbook={workbook}
       initialActiveSheetId={initialActiveSheetId}
       initialUpdatedAt={session.updatedAt}
-      cryptoKey={session.key}
-      editToken={editToken}
+      crypto={session.crypto}
       burnMode={burnMode}
       expiresAt={expiresAt}
       unlockCapability={session.capability}
@@ -173,8 +158,15 @@ async function resolveExistingPage(
 }
 
 function PageGate({ slug }: { slug: string }) {
-  const { code } = Route.useSearch();
-  const editToken = useEditToken(slug);
+  const { code: searchCode } = Route.useSearch();
+  const codePassword = readUnlockCode(searchCode);
+  const queryClient = useQueryClient();
+  const [freshCreate, setFreshCreate] = useState<FreshCreateSession | null>(null);
+
+  useEffect(() => {
+    migrateCodeToHash(searchCode);
+    importEditorFragment(slug);
+  }, [searchCode, slug]);
   const q = useQuery({
     queryKey: pageQueryKey(slug),
     queryFn: () => getPage(slug),
@@ -190,6 +182,30 @@ function PageGate({ slug }: { slug: string }) {
       }),
     [q.data, q.refetch],
   );
+
+  const endFreshCreate = useCallback(
+    (reason: LockReason) => {
+      clearDecryptedSession(slug, queryClient);
+      setFreshCreate(null);
+      void q.refetch();
+      if (reason === "inactivity") {
+        toast.info("Locked due to inactivity");
+      }
+    },
+    [queryClient, q.refetch, slug],
+  );
+
+  if (freshCreate) {
+    return (
+      <UnlockedEditor
+        slug={slug}
+        session={freshCreate.session}
+        burnMode={freshCreate.burnMode}
+        expiresAt={freshCreate.expiresAt}
+        onLock={endFreshCreate}
+      />
+    );
+  }
 
   if (q.isError && !q.data) {
     return (
@@ -209,7 +225,16 @@ function PageGate({ slug }: { slug: string }) {
   const data = q.data;
 
   if (data && !data.exists) {
-    return <CreateGate slug={slug} onCreated={() => q.refetch()} />;
+    return (
+      <CreateGate
+        slug={slug}
+        onCreated={(created) => {
+          setFreshCreate(created);
+          void q.refetch();
+        }}
+        onSlugTaken={() => void q.refetch()}
+      />
+    );
   }
 
   const page: ExistingPage | null = data?.exists === true ? data : null;
@@ -219,13 +244,20 @@ function PageGate({ slug }: { slug: string }) {
       slug={slug}
       page={page}
       ensurePage={ensurePage}
-      codePassword={code}
-      editToken={editToken}
+      codePassword={codePassword}
     />
   );
 }
 
-function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }) {
+function CreateGate({
+  slug,
+  onCreated,
+  onSlugTaken,
+}: {
+  slug: string;
+  onCreated: (created: FreshCreateSession) => void;
+  onSlugTaken: () => void;
+}) {
   const queryClient = useQueryClient();
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -259,18 +291,19 @@ function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }
     try {
       const loaded = await getPage(slug);
       if (!loaded.exists) throw new Error("Page not found");
-      const key = await deriveKey(unlockPw, loaded.salt, loaded.kdf_params as KdfParams);
-      const plaintext = await decrypt(key, loaded.ciphertext, loaded.iv);
-      capabilityRef.current = resolveUnlockCapability(readEditToken(slug), false);
+      const unlocked = await unlockPlace({
+        page: loaded,
+        password: unlockPw,
+      });
+      capabilityRef.current = unlocked.capability;
       setSession({
-        key,
-        plaintext,
+        crypto: unlocked.crypto,
+        plaintext: unlocked.plaintext,
         updatedAt: loaded.updated_at,
-        capability: capabilityRef.current,
+        capability: unlocked.capability,
       });
       setLockReason(null);
       setUnlockPw("");
-      onCreated();
     } catch (err) {
       toast.error(unlockErrorMessage(err));
     } finally {
@@ -283,7 +316,6 @@ function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }
       <UnlockedEditor
         slug={slug}
         session={session}
-        editToken={readEditToken(slug)}
         burnMode={burnMode}
         expiresAt={createdExpiresAt}
         onLock={endSession}
@@ -317,40 +349,48 @@ function CreateGate({ slug, onCreated }: { slug: string; onCreated: () => void }
     }
     setBusy(true);
     try {
-      const salt = newSalt();
       setEncryptPhase("deriving");
-      const key = await deriveKey(pw, salt, DEFAULT_KDF_PARAMS);
+      const workbookPlaintext = serializeWorkbook(createEmptyWorkbook());
       setEncryptPhase("encrypting");
-      const { ciphertext, iv } = await encrypt(key, serializeWorkbook(createEmptyWorkbook()));
+      const ksp = await createKspPlace({ slug, password: pw, workbookPlaintext });
       setEncryptPhase("uploading");
       const res = await createPage({
         slug,
-        ciphertext,
-        salt,
-        iv,
-        kdf_params: DEFAULT_KDF_PARAMS,
+        ciphertext: ksp.ciphertext,
+        salt: ksp.salt,
+        iv: ksp.iv,
+        kdf_params: ksp.kdf_params,
         burn_mode: burnMode,
       });
       if (!res.ok) {
         toast.error("That page name was just taken. Reloading…");
-        onCreated();
+        onSlugTaken();
         return;
       }
-      try {
-        localStorage.setItem(EDIT_TOKEN_KEY(slug), res.edit_token);
-      } catch {
-        /* ignore */
-      }
+      writeKspSecrets(slug, {
+        readerCapability: ksp.readerCapability,
+        editorPrivateKey: ksp.editorPrivateKey,
+        ownerPrivateKey: ksp.ownerPrivateKey,
+      });
       history.replaceState(null, "", window.location.pathname);
       setEncryptPhase("done");
-      onCreated();
-      capabilityRef.current = "editor";
-      setCreatedExpiresAt(res.expires_at);
-      setSession({
-        key,
-        plaintext: serializeWorkbook(createEmptyWorkbook()),
-        updatedAt: new Date().toISOString(),
-        capability: "editor",
+      onCreated({
+        session: {
+          crypto: kspSessionFromSecrets({
+            slug,
+            secrets: {
+              readerCapability: ksp.readerCapability,
+              editorPrivateKey: ksp.editorPrivateKey,
+              ownerPrivateKey: ksp.ownerPrivateKey,
+            },
+            meta: ksp.kdf_params,
+          }),
+          plaintext: workbookPlaintext,
+          updatedAt: new Date().toISOString(),
+          capability: "editor",
+        },
+        burnMode,
+        expiresAt: res.expires_at,
       });
     } catch (err) {
       toast.error((err as Error).message || "Could not create page");
@@ -430,38 +470,66 @@ function UnlockGate({
   page,
   ensurePage,
   codePassword,
-  editToken,
 }: {
   slug: string;
   page: ExistingPage | null;
   ensurePage: () => Promise<ExistingPage>;
   codePassword?: string;
-  editToken: string | null;
 }) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<UnlockedSession | null>(null);
   const [lockReason, setLockReason] = useState<LockReason | null>(null);
   const [pw, setPw] = useState("");
-  const [busy, setBusy] = useState(!!codePassword);
+  const hasReadShareLink = !!getFragmentCapability("read");
+  const [busy, setBusy] = useState(!!codePassword || hasReadShareLink);
+  const [shareUnlockFailed, setShareUnlockFailed] = useState(false);
   const capabilityRef = useRef<UnlockCapability>(
-    resolveUnlockCapability(editToken, !!codePassword),
+    initialUnlockCapability(slug, !!codePassword),
   );
+  const unlockInFlight = useRef(false);
 
   const unlockWithPassword = async (password: string, viaShareLink = false) => {
-    const loaded = page ?? (await ensurePage());
-    const key = await deriveKey(password, loaded.salt, loaded.kdf_params as KdfParams);
-    const plaintext = await decrypt(key, loaded.ciphertext, loaded.iv);
-    const capability = resolveUnlockCapability(editToken, viaShareLink);
-    capabilityRef.current = capability;
-    setSession({
-      key,
-      plaintext,
-      updatedAt: loaded.updated_at,
-      capability,
-    });
-    setLockReason(null);
-    setPw("");
+    if (unlockInFlight.current) return;
+    unlockInFlight.current = true;
+    try {
+      const loaded = page ?? (await ensurePage());
+      const unlocked = await unlockPlace({ page: loaded, password, viaShareLink });
+      capabilityRef.current = unlocked.capability;
+      setSession({
+        crypto: unlocked.crypto,
+        plaintext: unlocked.plaintext,
+        updatedAt: loaded.updated_at,
+        capability: unlocked.capability,
+      });
+      setLockReason(null);
+      setPw("");
+      stripSensitiveHashParams("read", "editor");
+    } finally {
+      unlockInFlight.current = false;
+    }
   };
+
+  const unlockWithShareLink = useCallback(async () => {
+    if (unlockInFlight.current) return;
+    unlockInFlight.current = true;
+    try {
+      const loaded = page ?? (await ensurePage());
+      const unlocked = await unlockPlace({ page: loaded, viaShareLink: true });
+      capabilityRef.current = unlocked.capability;
+      setSession({
+        crypto: unlocked.crypto,
+        plaintext: unlocked.plaintext,
+        updatedAt: loaded.updated_at,
+        capability: unlocked.capability,
+      });
+      setLockReason(null);
+      setPw("");
+      setShareUnlockFailed(false);
+      stripSensitiveHashParams("read", "editor");
+    } finally {
+      unlockInFlight.current = false;
+    }
+  }, [ensurePage, page]);
 
   const endSession = useCallback(
     (reason: LockReason) => {
@@ -477,6 +545,35 @@ function UnlockGate({
   );
 
   useEffect(() => {
+    if (session) return;
+    const hasEditorShareLink = !!getFragmentCapability("editor");
+    const stored = readKspSecrets(slug);
+    const canAutoUnlock =
+      hasReadShareLink ||
+      (hasEditorShareLink && !!stored?.readerCapability) ||
+      (!!stored?.readerCapability && !!stored?.editorPrivateKey);
+    if (!canAutoUnlock) return;
+    let cancelled = false;
+    setShareUnlockFailed(false);
+    (async () => {
+      setBusy(true);
+      try {
+        await unlockWithShareLink();
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof PageNotFoundError) return;
+        setShareUnlockFailed(true);
+        toast.error(unlockErrorMessage(err));
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, unlockWithShareLink, hasReadShareLink, slug]);
+
+  useEffect(() => {
     if (!codePassword || session) return;
     let cancelled = false;
     (async () => {
@@ -484,6 +581,7 @@ function UnlockGate({
       try {
         await unlockWithPassword(codePassword, true);
         stripCodeFromUrl();
+        stripSensitiveHashParams("code");
       } catch (err) {
         if (cancelled) return;
         if (err instanceof PageNotFoundError) return;
@@ -512,6 +610,43 @@ function UnlockGate({
     }
   };
 
+  const importEditorCapability = async (raw: string) => {
+    const parsed = parseEditorCapabilityImport(raw);
+    if (!parsed) {
+      toast.error("Invalid editor capability JSON");
+      return;
+    }
+    setBusy(true);
+    try {
+      const loaded = page ?? (await ensurePage());
+      if (!isKspPlaceMeta(loaded.kdf_params)) {
+        toast.error("Editor capability import works only for KSP places");
+        return;
+      }
+      const unlocked = await unlockPlaceWithEditorImport({
+        page: loaded,
+        secrets: {
+          readerCapability: parsed.read,
+          editorPrivateKey: parsed.editor,
+        },
+      });
+      capabilityRef.current = unlocked.capability;
+      setSession({
+        crypto: unlocked.crypto,
+        plaintext: unlocked.plaintext,
+        updatedAt: loaded.updated_at,
+        capability: unlocked.capability,
+      });
+      setLockReason(null);
+      setPw("");
+    } catch (err) {
+      if (err instanceof PageNotFoundError) return;
+      toast.error(unlockErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const expiryNote = useMemo(() => {
     if (!page) return null;
     if (page.burn_mode === "after_read") return "This page will burn after the next read.";
@@ -524,7 +659,6 @@ function UnlockGate({
       <UnlockedEditor
         slug={slug}
         session={session}
-        editToken={editToken}
         burnMode={page?.burn_mode ?? "never"}
         expiresAt={page?.expires_at ?? null}
         onLock={endSession}
@@ -541,8 +675,11 @@ function UnlockGate({
       password={pw}
       onPasswordChange={setPw}
       onSubmit={submit}
+      onImportEditorCapability={importEditorCapability}
       expiryNote={expiryNote}
-      autoFocusPassword={!codePassword}
+      autoFocusPassword={!codePassword && !(hasReadShareLink && !shareUnlockFailed)}
+      shareLinkUnlocking={hasReadShareLink && !shareUnlockFailed}
+      passwordFallback={!hasReadShareLink || shareUnlockFailed}
     />
   );
 }

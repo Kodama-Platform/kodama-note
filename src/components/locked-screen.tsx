@@ -1,4 +1,5 @@
 import type { FormEvent, ReactNode } from "react";
+import { useState } from "react";
 import { Flame, Loader2, Lock } from "lucide-react";
 
 import { NoteShell } from "@/components/site/note-shell";
@@ -17,8 +18,14 @@ type LockedScreenProps = {
   password: string;
   onPasswordChange: (value: string) => void;
   onSubmit: (e: FormEvent) => void;
+  /** KSP: paste out-of-band editor capability JSON instead of password. */
+  onImportEditorCapability?: (raw: string) => void | Promise<void>;
   expiryNote?: string | null;
   autoFocusPassword?: boolean;
+  /** True while auto-opening a `#read=` share link — hide password until it fails. */
+  shareLinkUnlocking?: boolean;
+  /** When false, password field is hidden (read-only link visit). */
+  passwordFallback?: boolean;
 };
 
 export function LockedScreen({
@@ -29,9 +36,15 @@ export function LockedScreen({
   password,
   onPasswordChange,
   onSubmit,
+  onImportEditorCapability,
   expiryNote,
   autoFocusPassword = true,
+  shareLinkUnlocking = false,
+  passwordFallback = true,
 }: LockedScreenProps) {
+  const [showImport, setShowImport] = useState(false);
+  const [importRaw, setImportRaw] = useState("");
+
   return (
     <GateShell>
       <NoteCard>
@@ -60,22 +73,65 @@ export function LockedScreen({
             <Flame className="h-3 w-3" /> {expiryNote}
           </p>
         )}
-        <form onSubmit={onSubmit} className="mt-8 space-y-4">
-          <PasswordInput
-            label="Password"
-            value={password}
-            onChange={onPasswordChange}
-            autoFocus={autoFocusPassword}
-          />
-          <button
-            type="submit"
-            disabled={busy || !password}
-            className="btn-moss mt-2 flex h-12 w-full items-center justify-center gap-2 disabled:opacity-60"
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-            {busy ? "Unlocking…" : "Unlock"}
-          </button>
-        </form>
+        {shareLinkUnlocking ? (
+          <div className="mt-8 flex h-12 items-center justify-center gap-2 text-sm font-light text-muted-foreground">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Opening read-only link…
+          </div>
+        ) : passwordFallback ? (
+          <form onSubmit={onSubmit} className="mt-8 space-y-4">
+            <PasswordInput
+              label="Password"
+              value={password}
+              onChange={onPasswordChange}
+              autoFocus={autoFocusPassword && !showImport}
+            />
+            <button
+              type="submit"
+              disabled={busy || !password}
+              className="btn-moss mt-2 flex h-12 w-full items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+              {busy ? "Unlocking…" : "Unlock"}
+            </button>
+          </form>
+        ) : null}
+        {onImportEditorCapability && passwordFallback && (
+          <div className="mt-6 border-t border-border/60 pt-6">
+            <button
+              type="button"
+              onClick={() => setShowImport((v) => !v)}
+              className="text-xs font-light text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              {showImport ? "Hide editor capability import" : "Have an editor capability?"}
+            </button>
+            {showImport && (
+              <div className="mt-3 space-y-3">
+                <label className="block">
+                  <span className="mb-2 block font-mono text-[11px] uppercase tracking-[0.2em] text-clay">
+                    Paste capability JSON
+                  </span>
+                  <textarea
+                    value={importRaw}
+                    onChange={(e) => setImportRaw(e.target.value)}
+                    rows={5}
+                    className="w-full rounded-xl border border-border/80 bg-background/50 px-3 py-2 font-mono text-xs text-foreground"
+                    placeholder='{"protocol":"ksp-v1","read":"…","editor":"…"}'
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={busy || !importRaw.trim()}
+                  onClick={() => void onImportEditorCapability(importRaw.trim())}
+                  className="btn-moss flex h-10 w-full items-center justify-center gap-2 text-sm disabled:opacity-60"
+                >
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Import & unlock
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </NoteCard>
     </GateShell>
   );
@@ -86,6 +142,22 @@ function GateShell({ children }: { children: ReactNode }) {
     <NoteShell centered footer="feature">
       <div className="w-full max-w-md">{children}</div>
     </NoteShell>
+  );
+}
+
+function NoteCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-border/80 bg-card/90 p-6 shadow-card backdrop-blur-md sm:p-8">
+      {children}
+    </div>
+  );
+}
+
+function NoteBadge({ children }: { children: ReactNode }) {
+  return (
+    <span className="note-badge inline-flex items-center gap-1.5">
+      <Lock className="h-3 w-3" /> {children}
+    </span>
   );
 }
 
@@ -107,20 +179,12 @@ function PasswordInput({
       </span>
       <input
         type="password"
-        autoFocus={autoFocus}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="note-input"
-        autoComplete="off"
+        autoFocus={autoFocus}
+        autoComplete="current-password"
+        className="w-full rounded-xl border border-border/80 bg-background/50 px-4 py-3 text-sm text-foreground outline-none ring-primary/30 transition-shadow focus:ring-2"
       />
     </label>
   );
-}
-
-function NoteCard({ children }: { children: ReactNode }) {
-  return <div className="note-card">{children}</div>;
-}
-
-function NoteBadge({ children }: { children: ReactNode }) {
-  return <span className="note-badge">{children}</span>;
 }

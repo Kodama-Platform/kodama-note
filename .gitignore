@@ -33,4 +33,4 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
+supabase/functions/vendor

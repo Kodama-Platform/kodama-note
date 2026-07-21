@@ -146,6 +146,37 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      kodama_ksp_append_version: {
+        Args: {
+          p_ciphertext: string
+          p_iv: string
+          p_slug: string
+        }
+        Returns: Json
+      }
+      kodama_ksp_delete_attachment: {
+        Args: {
+          p_attachment_id: string
+          p_slug: string
+        }
+        Returns: undefined
+      }
+      kodama_ksp_register_attachment: {
+        Args: {
+          p_filename_ciphertext: string
+          p_filename_iv: string
+          p_iv: string
+          p_mime: string
+          p_size: number
+          p_slug: string
+          p_storage_path: string
+        }
+        Returns: Json
+      }
+      kodama_ksp_update_expiry: {
+        Args: { p_burn_mode: string; p_slug: string }
+        Returns: Json
+      }
       kodama_append_version: {
         Args: {
           p_ciphertext: string

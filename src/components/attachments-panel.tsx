@@ -3,7 +3,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, FileText, Image as ImageIcon, Loader2, Paperclip, Upload } from "lucide-react";
 import { toast } from "sonner";
 
+import { decryptAttachmentBytes, attachmentContentType } from "@/lib/attachment-crypto";
 import { decryptAttachmentFilenames, type DecryptedAttachment } from "@/lib/attachment-decrypt";
+import type { PlaceCryptoSession } from "@/lib/crypto-context";
 import {
   attachmentsQueryKey,
   fetchAttachmentList,
@@ -11,7 +13,6 @@ import {
   shouldFetchAttachmentList,
 } from "@/lib/attachment-list";
 import { uploadEncryptedAttachment } from "@/lib/attachment-upload";
-import { decryptBytes } from "@/lib/crypto";
 import { downloadAttachmentBlob } from "@/lib/pages";
 import {
   formatAttachmentLimit,
@@ -22,16 +23,16 @@ import { collectSheetAttachmentRefs } from "@/lib/workbook";
 
 export function AttachmentsPanel({
   slug,
-  cryptoKey,
-  editToken,
+  crypto,
+  canUpload,
   sheetMarkdown,
   sheetAttachmentIds,
   planTier,
   onAttachmentAdded,
 }: {
   slug: string;
-  cryptoKey: CryptoKey;
-  editToken: string | null;
+  crypto: PlaceCryptoSession;
+  canUpload: boolean;
   sheetMarkdown: string;
   sheetAttachmentIds: Set<string>;
   planTier: PlanTier;
@@ -61,13 +62,13 @@ export function AttachmentsPanel({
       return;
     }
     let cancelled = false;
-    void decryptAttachmentFilenames(rows, cryptoKey).then((decrypted) => {
+    void decryptAttachmentFilenames(rows, crypto).then((decrypted) => {
       if (!cancelled) setAllItems(decrypted);
     });
     return () => {
       cancelled = true;
     };
-  }, [cryptoKey, listQuery.data, listQuery.isLoading]);
+  }, [crypto, listQuery.data, listQuery.isLoading]);
 
   const items = useMemo(() => {
     const onSheet = (id: string) =>
@@ -79,8 +80,8 @@ export function AttachmentsPanel({
     listQuery.isLoading && items.length === 0 ? sheetAttachmentIds.size : items.length;
 
   const upload = async (file: File) => {
-    if (!editToken) {
-      toast.error("You need the edit link on this device to upload files");
+    if (!canUpload) {
+      toast.error("Editor capability required to upload files");
       return;
     }
     if (atLimit) {
@@ -96,8 +97,7 @@ export function AttachmentsPanel({
       const { id } = await uploadEncryptedAttachment({
         file,
         slug,
-        editToken,
-        cryptoKey,
+        crypto,
       });
       onAttachmentAdded(id);
       toast.success("Attachment encrypted & uploaded");
@@ -114,9 +114,10 @@ export function AttachmentsPanel({
     try {
       const blob = await downloadAttachmentBlob(a.storage_path);
       const ct = new Uint8Array(await blob.arrayBuffer());
-      const pt = await decryptBytes(cryptoKey, ct, a.iv);
-      const url = URL.createObjectURL(new Blob([pt.buffer as ArrayBuffer], { type: a.mime }));
-      const link = document.createElement("a");
+      const pt = await decryptAttachmentBytes(crypto, a, ct);
+      const url = URL.createObjectURL(
+        new Blob([pt.buffer as ArrayBuffer], { type: attachmentContentType(a.mime) }),
+      );      const link = document.createElement("a");
       link.href = url;
       link.download = a.filename;
       link.click();
@@ -139,7 +140,7 @@ export function AttachmentsPanel({
             {limit !== null ? `/${limitLabel}` : ""})
           </span>
         </div>
-        {editToken && (
+        {canUpload && (
           <>
             <input
               ref={fileInput}

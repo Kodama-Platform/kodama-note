@@ -1,16 +1,20 @@
-import { decrypt } from "@/lib/crypto";
+import type { PlaceCryptoSession } from "@/lib/crypto-context";
+import {
+  decryptAttachmentFilename,
+  decryptAttachmentBytes,
+} from "@/lib/attachment-crypto";
 import type { AttachmentRow } from "@/lib/pages";
 
 export type DecryptedAttachment = AttachmentRow & { filename: string };
 
 export async function decryptAttachmentFilenames(
   rows: AttachmentRow[],
-  cryptoKey: CryptoKey,
+  crypto: PlaceCryptoSession,
 ): Promise<DecryptedAttachment[]> {
   return Promise.all(
     rows.map(async (r) => {
       try {
-        const filename = await decrypt(cryptoKey, r.filename_ciphertext, r.filename_iv);
+        const filename = await decryptAttachmentFilename(crypto, r);
         return { ...r, filename };
       } catch {
         return { ...r, filename: "(unreadable)" };
@@ -18,3 +22,5 @@ export async function decryptAttachmentFilenames(
     }),
   );
 }
+
+export { decryptAttachmentBytes };

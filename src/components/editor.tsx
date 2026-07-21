@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Check,
   CloudOff,
+  Copy,
   Flame,
   Loader2,
   Lock,
@@ -48,7 +49,7 @@ import {
   setAutoLockDuration,
   type AutoLockDuration,
 } from "@/lib/auto-lock";
-import { encrypt } from "@/lib/crypto";
+import { encryptPlaceWorkbookForSave, canSignKspWorkbook, type PlaceCryptoSession } from "@/lib/crypto-context";
 import type { LockReason } from "@/lib/lock-session";
 import { getSaveMode, setSaveMode, type SaveMode } from "@/lib/save-mode";
 import type { UnlockCapability } from "@/lib/unlock-capability";
@@ -56,6 +57,17 @@ import { setSheetHash } from "@/lib/hash-params";
 import { deleteAttachment, savePage, updateExpiry, type BurnMode } from "@/lib/pages";
 import { flushActiveSheetMarkdown } from "@/lib/workbook-flush";
 import { getPlanTier } from "@/lib/plan-tier";
+import {
+  buildEditorCapabilityExport,
+  buildEditorShareUrl,
+  buildReadOnlyUrl,
+  getFragmentCapability,
+  isLegacyEditorFragment,
+  LEGACY_EDITOR_SENTINEL,
+} from "@/lib/ksp-fragment";
+import { resolveShareCapabilities, syncKspSecretsFromSession } from "@/lib/share-capabilities";
+import { hasKspEditorSecrets, readKspSecrets, writeKspSecrets } from "@/lib/ksp-secrets";
+import { readLegacyEditToken } from "@/lib/legacy-edit";
 import {
   addSheet,
   addSheetAttachment,
@@ -88,28 +100,39 @@ export function Editor({
   initialWorkbook,
   initialActiveSheetId,
   initialUpdatedAt,
-  cryptoKey,
-  editToken,
+  crypto,
   burnMode: initialBurnMode,
   expiresAt: initialExpiresAt,
-  unlockCapability: _unlockCapability,
+  unlockCapability = "owner",
   onLock,
 }: {
   slug: string;
   initialWorkbook: WorkbookPayload;
   initialActiveSheetId: string;
   initialUpdatedAt: string;
-  cryptoKey: CryptoKey;
-  editToken: string | null;
+  crypto: PlaceCryptoSession;
   burnMode: BurnMode;
   expiresAt: string | null;
   unlockCapability?: UnlockCapability;
   onLock?: (reason: LockReason) => void;
 }) {
-  void _unlockCapability;
+  const isReader = unlockCapability === "reader";
+  const legacyEditToken = useMemo(() => readLegacyEditToken(slug), [slug]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const canSave = !!editToken;
+  const [cryptoSession, setCryptoSession] = useState(crypto);
+  useEffect(() => {
+    setCryptoSession(crypto);
+  }, [crypto]);
+  const isKsp = cryptoSession.kind === "ksp";
+  const canSave =
+    !isReader &&
+    canSignKspWorkbook(cryptoSession) &&
+    (isKsp ? hasKspEditorSecrets(slug) : !!legacyEditToken);
+  const canEdit = canSave;
+  const canChangeExpiry =
+    !isReader &&
+    (isKsp ? !!readKspSecrets(slug)?.ownerPrivateKey : !!legacyEditToken);
   const [saveMode, setSaveModeState] = useState<SaveMode>(() => getSaveMode());
   const [autoLockDuration, setAutoLockDurationState] = useState<AutoLockDuration>(() =>
     getAutoLockDuration(),
@@ -131,6 +154,7 @@ export function Editor({
   const [findMode, setFindMode] = useState<"find" | "replace">("find");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const initialSerialized = useMemo(() => serializeWorkbook(initialWorkbook), [initialWorkbook]);
   const lastSavedRef = useRef(initialSerialized);
   const [isDirty, setIsDirty] = useState(false);
@@ -166,6 +190,72 @@ export function Editor({
   const visits = useVisitCount(slug);
   const headerScrolled = useHeaderScrolled();
   const needsAttachmentList = useMemo(() => workbookUsesAttachments(workbook), [workbook]);
+  const [storedSecrets, setStoredSecrets] = useState(() => readKspSecrets(slug));
+  const [readFromUrl, setReadFromUrl] = useState(() => getFragmentCapability("read"));
+  const [editorFromUrl, setEditorFromUrl] = useState(() => getFragmentCapability("editor"));
+  useEffect(() => {
+    const sync = () => {
+      setReadFromUrl(getFragmentCapability("read"));
+      setEditorFromUrl(getFragmentCapability("editor"));
+    };
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  useEffect(() => {
+    syncKspSecretsFromSession(slug, cryptoSession, writeKspSecrets);
+    setStoredSecrets(readKspSecrets(slug));
+  }, [cryptoSession, slug]);
+  useEffect(() => {
+    if (shareOpen) setStoredSecrets(readKspSecrets(slug));
+  }, [shareOpen, slug]);
+
+  const { readerCapability, editorPrivateKey } = useMemo(
+    () =>
+      resolveShareCapabilities({
+        session: cryptoSession,
+        stored: storedSecrets,
+        readFromUrl,
+        editorFromUrl,
+      }),
+    [cryptoSession, storedSecrets, readFromUrl, editorFromUrl],
+  );
+
+  const readerShareUrl = useMemo(() => {
+    if (!readerCapability) return null;
+    return buildReadOnlyUrl(`${window.location.origin}/${slug}`, readerCapability);
+  }, [readerCapability, slug]);
+
+  const editorShareUrl = useMemo(() => {
+    if (!readerCapability || !editorPrivateKey) return null;
+    if (cryptoSession.kind === "ksp" && isLegacyEditorFragment(editorPrivateKey)) return null;
+    if (cryptoSession.kind === "legacy" && !isLegacyEditorFragment(editorPrivateKey)) return null;
+    return buildEditorShareUrl(
+      `${window.location.origin}/${slug}`,
+      readerCapability,
+      editorPrivateKey,
+    );
+  }, [cryptoSession.kind, editorPrivateKey, readerCapability, slug]);
+
+  const editorCapabilityExport = useMemo(() => {
+    if (cryptoSession.kind !== "ksp" || !readerCapability || !editorPrivateKey) {
+      return null;
+    }
+    return buildEditorCapabilityExport({
+      slug,
+      readerCapability,
+      editorPrivateKey,
+    });
+  }, [cryptoSession.kind, editorPrivateKey, readerCapability, slug]);
+
+  const copyToClipboard = useCallback(async (text: string, label = "Link copied") => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(label);
+    } catch {
+      toast.error("Couldn't copy link");
+    }
+  }, []);
 
   useEffect(() => {
     if (needsAttachmentList) {
@@ -228,12 +318,17 @@ export function Editor({
 
   const changeExpiry = useCallback(
     async (mode: BurnMode) => {
-      if (!editToken || mode === burnMode) {
+      if (!canChangeExpiry || mode === burnMode) {
         return;
       }
       setExpirySaving(true);
       try {
-        const res = await updateExpiry({ slug, edit_token: editToken, burn_mode: mode });
+        const res = await updateExpiry({
+          slug,
+          burn_mode: mode,
+          ksp: isKsp,
+          legacyEditToken,
+        });
         setBurnMode(res.burn_mode);
         setExpiresAt(res.expires_at);
         toast.success("Lifetime updated");
@@ -243,7 +338,7 @@ export function Editor({
         setExpirySaving(false);
       }
     },
-    [burnMode, editToken, slug],
+    [burnMode, canChangeExpiry, isKsp, legacyEditToken, slug],
   );
 
   const markDirty = useCallback(() => {
@@ -282,7 +377,7 @@ export function Editor({
       skipFlush?: boolean;
     }): Promise<boolean> => {
       const run = async (): Promise<boolean> => {
-        if (!editToken) return false;
+        if (!canSave) return false;
         const payload =
           opts?.skipFlush && opts.workbook != null
             ? opts.workbook
@@ -307,8 +402,18 @@ export function Editor({
         const generationAtSaveStart = editGenerationRef.current;
         setStatus("saving");
         try {
-          const { ciphertext, iv } = await encrypt(cryptoKey, plaintext);
-          const res = await savePage({ slug, edit_token: editToken, ciphertext, iv });
+          const { ciphertext, iv, session } = await encryptPlaceWorkbookForSave(
+            cryptoSession,
+            plaintext,
+          );
+          setCryptoSession(session);
+          const res = await savePage({
+            slug,
+            ciphertext,
+            iv,
+            ksp: isKsp,
+            legacyEditToken,
+          });
           markSaved(plaintext, payload, generationAtSaveStart);
           setUpdatedAt(res.created_at);
           return true;
@@ -329,7 +434,7 @@ export function Editor({
         }
       }
     },
-    [cryptoKey, editToken, flushWorkbook, markSaved, slug],
+    [cryptoSession, canSave, flushWorkbook, isKsp, legacyEditToken, markSaved, slug],
   );
 
   const prepareForLock = useCallback(async () => {
@@ -522,10 +627,15 @@ export function Editor({
           wb = updateActiveSheetMarkdown(wb, activeSheetId, currentMd);
         }
         const idsToDelete = getSheetAttachmentIdsForDelete(wb, sheetId);
-        if (editToken && idsToDelete.length > 0) {
+        if (canSave && idsToDelete.length > 0) {
           const results = await Promise.allSettled(
             idsToDelete.map((attachment_id) =>
-              deleteAttachment({ slug, edit_token: editToken, attachment_id }),
+              deleteAttachment({
+                slug,
+                attachment_id,
+                ksp: isKsp,
+                legacyEditToken,
+              }),
             ),
           );
           const failed = results.filter((r) => r.status === "rejected").length;
@@ -546,7 +656,7 @@ export function Editor({
         toast.error((e as Error).message);
       }
     },
-    [activeSheetId, editToken, markDirty, queryClient, slug, switchSheet, workbook],
+    [activeSheetId, canSave, isKsp, legacyEditToken, markDirty, queryClient, slug, switchSheet, workbook],
   );
 
   const handleReorderSheets = useCallback(
@@ -612,10 +722,8 @@ export function Editor({
         toggleMarkdownView();
       } else if (mod && e.shiftKey && k === "c") {
         e.preventDefault();
-        navigator.clipboard
-          .writeText(window.location.origin + "/" + slug)
-          .then(() => toast.success("Link copied"))
-          .catch(() => toast.error("Couldn't copy link"));
+        const url = readerShareUrl ?? `${window.location.origin}/${slug}`;
+        void copyToClipboard(url);
       } else if (k === "escape") {
         if (findOpen) setFindOpen(false);
         else if (markdownView) setMarkdownView(false);
@@ -635,7 +743,7 @@ export function Editor({
       window.removeEventListener("kodama:toggle-focus", onFocusEvt);
       window.removeEventListener("kodama:toggle-markdown-view", onMarkdownViewEvt);
     };
-  }, [save, findOpen, focus, markdownView, slug, toggleMarkdownView]);
+  }, [copyToClipboard, findOpen, focus, markdownView, readerShareUrl, save, slug, toggleMarkdownView]);
 
   const charCount = activeMarkdown.length;
   const wordCount = useMemo(
@@ -649,9 +757,20 @@ export function Editor({
   return (
     <NoteShell showHeader={false} footer={false} fillViewport className={focus ? "focus-mode" : ""}>
       <div className={`flex h-full min-h-0 flex-col overflow-hidden ${HEADER_OFFSET}`}>
+      {isReader && (
+        <div
+          className="border-b border-border/60 bg-muted/30 px-4 py-2 text-center text-xs font-light text-muted-foreground"
+          role="status"
+        >
+          Read-only access — viewing is allowed; saving and editing require the owner password on this device.
+        </div>
+      )}
       <header
         data-editor-chrome="true"
-        className={headerShellClass(headerScrolled, mobileMenuOpen || moreMenuOpen || saveModeOpen)}
+        className={headerShellClass(
+          headerScrolled,
+          mobileMenuOpen || moreMenuOpen || saveModeOpen || shareOpen,
+        )}
       >
 
         <div className={HEADER_INNER}>
@@ -690,6 +809,7 @@ export function Editor({
               type="button"
               onClick={() => {
                 setSaveModeOpen(false);
+                setShareOpen(false);
                 setMoreMenuOpen(false);
                 setMobileMenuOpen(true);
               }}
@@ -798,6 +918,115 @@ export function Editor({
               </>
             )}
             <ExpiryPill burnMode={burnMode} expiresAt={expiresAt} />
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveModeOpen(false);
+                  setMoreMenuOpen(false);
+                  setShareOpen((v) => !v);
+                }}
+                className="note-toolbar-btn"
+                aria-haspopup="menu"
+                aria-expanded={shareOpen}
+                title="Sharing links"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                <span className="hidden lg:inline">Share</span>
+              </button>
+              {shareOpen && (
+                <>
+                  <button
+                    aria-label="Close menu"
+                    className="fixed inset-0 z-30 cursor-default"
+                    onClick={() => setShareOpen(false)}
+                  />
+                  <div
+                    role="menu"
+                    className="absolute right-0 z-40 mt-1.5 w-64 overflow-hidden rounded-xl border border-border/80 bg-card/95 p-1 shadow-card backdrop-blur-md"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={!readerShareUrl}
+                      onClick={() => {
+                        if (!readerShareUrl) return;
+                        setShareOpen(false);
+                        void copyToClipboard(readerShareUrl, "Read-only link copied");
+                      }}
+                      className="flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-40"
+                      title={
+                        readerShareUrl
+                          ? "Anyone with this link can read"
+                          : "Unlock with your password once to generate a read-only link"
+                      }
+                    >
+                      <span className="flex-1">
+                        <span className="block font-medium text-foreground">Read-only link</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          Anyone with this link can decrypt and read
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={!editorShareUrl}
+                      onClick={() => {
+                        if (!editorShareUrl) return;
+                        setShareOpen(false);
+                        void copyToClipboard(editorShareUrl, "Editor link copied");
+                      }}
+                      className="flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-40"
+                      title={
+                        editorShareUrl
+                          ? "Anyone with this link can decrypt and edit"
+                          : isReader
+                            ? "Unlock with your password to share edit access"
+                            : cryptoSession.kind === "legacy"
+                              ? "Unlock with your password once to generate an editor link"
+                              : "Unlock with your password to generate an editor link"
+                      }
+                    >
+                      <span className="flex-1">
+                        <span className="block font-medium text-foreground">Editor link</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          Decrypt and edit — share only over a secure channel
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={!editorCapabilityExport}
+                      onClick={() => {
+                        if (!editorCapabilityExport) return;
+                        setShareOpen(false);
+                        void copyToClipboard(
+                          editorCapabilityExport,
+                          "Editor capability copied — share out-of-band",
+                        );
+                      }}
+                      className="flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-40"
+                      title={
+                        editorCapabilityExport
+                          ? "Copy KSP editor capability JSON for secure sharing"
+                          : cryptoSession.kind === "legacy"
+                            ? "Editor capability export requires a KSP place"
+                            : "Unlock with your password to export editor capability"
+                      }
+                    >
+                      <span className="flex-1">
+                        <span className="block font-medium text-foreground">Editor capability (JSON)</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          Paste import for recipients who cannot use a link
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
             <button
               onClick={() => {
                 setFindMode("find");
@@ -822,7 +1051,8 @@ export function Editor({
               </button>
             )}
             <EditorMoreMenu
-              canEdit={!!editToken}
+              canEdit={canEdit}
+              canChangeExpiry={canChangeExpiry}
               focus={focus}
               markdownView={markdownView}
               burnMode={burnMode}
@@ -867,6 +1097,10 @@ export function Editor({
             workbook.sheets.find((s) => s.sheet_id === activeSheetId)?.title ?? "sheet"
           }
           getActiveText={() => richEditorRef.current?.getMarkdown() ?? activeMarkdown}
+          readerShareUrl={readerShareUrl}
+          editorShareUrl={editorShareUrl}
+          editorCapabilityExport={editorCapabilityExport}
+          onCopyShare={(text, label) => void copyToClipboard(text, label)}
           onSave={() => void save()}
           onReload={handleReload}
           onChangeSaveMode={changeSaveMode}
@@ -927,7 +1161,7 @@ export function Editor({
           <SheetTabBar
             sheets={workbook.sheets}
             activeSheetId={activeSheetId}
-            canEdit={canSave}
+            canEdit={canEdit}
             switching={false}
             onSelect={(id) => switchSheet(id)}
             onAdd={handleAddSheet}
@@ -955,8 +1189,9 @@ export function Editor({
                 onMarkdownChange={handleMarkdownChange}
                 onBaseline={handleEditorBaseline}
                 slug={slug}
-                cryptoKey={cryptoKey}
-                editToken={editToken}
+                crypto={cryptoSession}
+                canEdit={canEdit}
+                canUpload={canSave}
                 allowedAttachmentIds={activeAttachmentIds}
                 planTier={planTier}
                 sheetAttachmentCount={activeAttachmentIds.size}
@@ -968,8 +1203,8 @@ export function Editor({
                 <div className="mt-8" data-editor-attachments="true">
                   <AttachmentsPanel
                     slug={slug}
-                    cryptoKey={cryptoKey}
-                    editToken={editToken}
+                    crypto={cryptoSession}
+                    canUpload={canSave}
                     sheetMarkdown={activeMarkdown}
                     sheetAttachmentIds={activeAttachmentIds}
                     planTier={planTier}

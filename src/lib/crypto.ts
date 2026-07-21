@@ -92,11 +92,11 @@ export function fromB64(s: string): Uint8Array {
   return out;
 }
 
-export async function deriveKey(
+export async function deriveRawKeyBytes(
   password: string,
   saltB64: string,
   params: KdfParams = DEFAULT_KDF_PARAMS,
-): Promise<CryptoKey> {
+): Promise<Uint8Array> {
   const kdf = normalizeKdfParams(params);
   const salt = fromB64(saltB64);
   const raw = await argon2id({
@@ -108,8 +108,10 @@ export async function deriveKey(
     hashLength: 32,
     outputType: "binary",
   });
-  // Copy out of WASM memory before any await — the buffer can be reused otherwise.
-  const rawKey = new Uint8Array(raw as ArrayLike<number>);
+  return new Uint8Array(raw as ArrayLike<number>);
+}
+
+export async function importAesKeyFromRaw(rawKey: Uint8Array): Promise<CryptoKey> {
   return getSubtleCrypto().importKey(
     "raw",
     rawKey,
@@ -117,6 +119,15 @@ export async function deriveKey(
     false,
     ["encrypt", "decrypt"],
   );
+}
+
+export async function deriveKey(
+  password: string,
+  saltB64: string,
+  params: KdfParams = DEFAULT_KDF_PARAMS,
+): Promise<CryptoKey> {
+  const rawKey = await deriveRawKeyBytes(password, saltB64, params);
+  return importAesKeyFromRaw(rawKey);
 }
 
 export async function encrypt(

@@ -1,5 +1,6 @@
 /** Keys that must never be sent to the backend — passwords and decrypted content stay in the browser. */
-const FORBIDDEN_PAYLOAD_KEY = /password|plaintext|^text$|^content$|^body$|^pw$|^secret$/i;
+const FORBIDDEN_PAYLOAD_KEY =
+  /password|plaintext|^text$|^content$|^body$|^pw$|^secret$|private[_-]?key|read[_-]?key|reader[_-]?capability|owner[_-]?private|editor[_-]?private|master[_-]?secret/i;
 
 /** Guard every write RPC so passwords / plaintext cannot be sent to Supabase by mistake. */
 export function assertNoSecretsInPayload(payload: Record<string, unknown>, context: string): void {

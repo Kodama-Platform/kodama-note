@@ -7,22 +7,22 @@ import {
 } from "@/lib/unlock-capability";
 
 describe("unlock-capability", () => {
-  it("prefers editor when edit token is present", () => {
-    expect(resolveUnlockCapability("token", false)).toBe("editor");
-    expect(resolveUnlockCapability("token", true)).toBe("editor");
+  it("prefers editor when secrets or password unlock present", () => {
+    expect(resolveUnlockCapability({ hasEditorSecrets: true })).toBe("editor");
+    expect(resolveUnlockCapability({ unlockedWithPassword: true })).toBe("editor");
   });
 
   it("detects reader share links", () => {
-    expect(resolveUnlockCapability(null, true)).toBe("reader");
+    expect(resolveUnlockCapability({ hasReadCapability: true })).toBe("reader");
   });
 
   it("defaults to owner", () => {
-    expect(resolveUnlockCapability(null, false)).toBe("owner");
+    expect(resolveUnlockCapability({})).toBe("owner");
   });
 
   it("describes each capability", () => {
     expect(lockedBadgeLabel("editor")).toContain("editable");
-    expect(lockedDescription("reader")).toContain("share link");
+    expect(lockedDescription("reader")).toContain("read-only");
     expect(lockedDescription("owner")).toContain("password");
   });
 });

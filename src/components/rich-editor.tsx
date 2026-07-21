@@ -16,6 +16,7 @@ import { Markdown } from "tiptap-markdown";
 import { toast } from "sonner";
 
 import { createKodamaImageExtension, revokeKodamaBlobCache } from "@/lib/kodama-image";
+import type { PlaceCryptoSession } from "@/lib/crypto-context";
 import { uploadEncryptedAttachment } from "@/lib/attachment-upload";
 import { handleEditorTabKeydown, ListTabExtension } from "@/lib/list-tab-extension";
 import {
@@ -71,8 +72,9 @@ type RichEditorProps = {
   /** Fired once after TipTap finishes parsing initial content — use to align save baseline. */
   onBaseline?: (markdown: string) => void;
   slug: string;
-  cryptoKey: CryptoKey;
-  editToken: string | null;
+  crypto: PlaceCryptoSession;
+  canEdit?: boolean;
+  canUpload?: boolean;
   allowedAttachmentIds?: ReadonlySet<string>;
   planTier?: PlanTier;
   sheetAttachmentCount?: number;
@@ -112,9 +114,11 @@ function linkTargetFromEvent(event: MouseEvent, root: HTMLElement): HTMLAnchorEl
 
 export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
   function RichEditor(
-    { initialContent, onMarkdownChange, onBaseline, slug, cryptoKey, editToken, allowedAttachmentIds, planTier = "free", sheetAttachmentCount = 0, onAttachmentAdded, autoFocus = true, focusMode = false },
+    { initialContent, onMarkdownChange, onBaseline, slug, crypto, canEdit: canEditProp, canUpload: canUploadProp, allowedAttachmentIds, planTier = "free", sheetAttachmentCount = 0, onAttachmentAdded, autoFocus = true, focusMode = false },
     ref,
   ) {
+    const canEdit = canEditProp ?? false;
+    const canUpload = canUploadProp ?? canEdit;
     const lastEmitted = useRef(initialContent);
     const skipUpdate = useRef(false);
     const baselineSet = useRef(false);
@@ -191,8 +195,8 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
 
     async function insertImage(file: File) {
       const ed = editorRef.current;
-      if (!ed || !editToken) {
-        toast.error("You need the edit link on this device to insert images");
+      if (!ed || !canUpload) {
+        toast.error("Editor capability required to insert images");
         return;
       }
       const limit = maxAttachmentsPerSheet(planTier);
@@ -208,8 +212,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         const { id, url } = await uploadEncryptedAttachment({
           file,
           slug,
-          editToken,
-          cryptoKey,
+          crypto,
         });
         onAttachmentAdded?.(id);
         ed.chain().focus().setImage({ src: url, alt: file.name }).run();
@@ -240,7 +243,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         TableRow,
         TableHeader,
         TableCell,
-        createKodamaImageExtension({ slug, cryptoKey, allowedAttachmentIds }),
+        createKodamaImageExtension({ slug, crypto, allowedAttachmentIds }),
         Placeholder.configure({
           placeholder: "Start writing…",
         }),
@@ -254,7 +257,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         ListTabExtension,
       ],
       content: normalizeTaskListMarkdown(initialContent),
-      editable: !!editToken,
+      editable: canEdit,
       editorProps: {
         attributes: {
           class: "tiptap reading-mode min-h-[60vh] outline-none",
@@ -263,7 +266,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         },
         handlePaste(view, event) {
           const items = event.clipboardData?.items;
-          if (items && editToken) {
+          if (items && canEdit) {
             for (const item of items) {
               if (item.type.startsWith("image/")) {
                 const file = item.getAsFile();
@@ -286,7 +289,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
           return false;
         },
         handleDrop(view, event) {
-          if (!editToken) return false;
+          if (!canEdit) return false;
           const file = event.dataTransfer?.files?.[0];
           if (file?.type.startsWith("image/")) {
             event.preventDefault();
@@ -359,8 +362,8 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
 
     useEffect(() => {
       if (!editor) return;
-      editor.setEditable(!!editToken);
-    }, [editor, editToken]);
+      editor.setEditable(canEdit);
+    }, [editor, canEdit]);
 
     useEffect(() => {
       if (!editor) return;
@@ -474,7 +477,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         },
         insertImageFromFile: insertImage,
       }),
-      [editor, onMarkdownChange, slug, editToken, cryptoKey],
+      [editor, onMarkdownChange, slug, crypto, canUpload],
     );
 
     if (!editor) return null;

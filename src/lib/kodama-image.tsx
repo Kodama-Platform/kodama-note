@@ -4,8 +4,8 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 
 import { fetchAttachmentList } from "@/lib/attachment-list";
-import { decryptBytes } from "@/lib/crypto";
-import { downloadAttachmentBlob } from "@/lib/pages";
+import { decryptAttachmentBytes, attachmentContentType } from "@/lib/attachment-crypto";
+import type { PlaceCryptoSession } from "@/lib/crypto-context";import { downloadAttachmentBlob } from "@/lib/pages";
 
 export const KODAMA_ATT_PREFIX = "kodama-att:";
 
@@ -20,7 +20,7 @@ export function parseKodamaAttUrl(src: string | null | undefined): string | null
 
 type ResolverContext = {
   slug: string;
-  cryptoKey: CryptoKey;
+  crypto: PlaceCryptoSession;
   allowedAttachmentIds?: ReadonlySet<string>;
 };
 
@@ -43,9 +43,10 @@ export async function resolveKodamaAttachmentUrl(
 
   const blob = await downloadAttachmentBlob(row.storage_path);
   const ct = new Uint8Array(await blob.arrayBuffer());
-  const pt = await decryptBytes(ctx.cryptoKey, ct, row.iv);
-  const url = URL.createObjectURL(new Blob([pt.buffer as ArrayBuffer], { type: row.mime }));
-  blobCache.set(cacheKey, url);
+  const pt = await decryptAttachmentBytes(ctx.crypto, row, ct);
+  const url = URL.createObjectURL(
+    new Blob([pt.buffer as ArrayBuffer], { type: attachmentContentType(row.mime) }),
+  );  blobCache.set(cacheKey, url);
   return url;
 }
 

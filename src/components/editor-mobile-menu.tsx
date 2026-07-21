@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import {
   Check,
   CloudOff,
+  Copy,
   FileCode2,
   Flame,
   Focus,
@@ -41,6 +42,10 @@ type EditorMobileMenuProps = {
   workbook: WorkbookPayload;
   activeSheetTitle: string;
   getActiveText: () => string;
+  readerShareUrl: string | null;
+  editorShareUrl: string | null;
+  editorCapabilityExport: string | null;
+  onCopyShare: (text: string, label: string) => void;
   onSave: () => void;
   onReload: () => void;
   onChangeSaveMode: (mode: SaveMode) => void;
@@ -70,6 +75,10 @@ export function EditorMobileMenu({
   workbook,
   activeSheetTitle,
   getActiveText,
+  readerShareUrl,
+  editorShareUrl,
+  editorCapabilityExport,
+  onCopyShare,
   onSave,
   onReload,
   onChangeSaveMode,
@@ -219,6 +228,41 @@ export function EditorMobileMenu({
               onClick={() => {
                 onToggleMarkdownView();
                 onClose();
+              }}
+            />
+          </section>
+
+          <section className="space-y-1">
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Share
+            </p>
+            <MobileAction
+              icon={<Copy className="h-4 w-4" />}
+              label="Read-only link"
+              hint="Decrypt and read"
+              disabled={!readerShareUrl}
+              onClick={() => {
+                if (!readerShareUrl) return;
+                onCopyShare(readerShareUrl, "Read-only link copied");
+              }}
+            />
+            <MobileAction
+              icon={<Copy className="h-4 w-4" />}
+              label="Editor link"
+              hint="Decrypt and edit"
+              disabled={!editorShareUrl}
+              onClick={() => {
+                if (!editorShareUrl) return;
+                onCopyShare(editorShareUrl, "Editor link copied");
+              }}
+            />
+            <MobileAction
+              icon={<Copy className="h-4 w-4" />}
+              label="Editor capability (JSON)"
+              disabled={!editorCapabilityExport}
+              onClick={() => {
+                if (!editorCapabilityExport) return;
+                onCopyShare(editorCapabilityExport, "Editor capability copied");
               }}
             />
           </section>

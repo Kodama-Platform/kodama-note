@@ -16,6 +16,7 @@ import { useExportActions } from "@/components/export-menu";
 
 type EditorMoreMenuProps = {
   canEdit: boolean;
+  canChangeExpiry?: boolean;
   focus: boolean;
   markdownView: boolean;
   burnMode: BurnMode;
@@ -35,6 +36,7 @@ type EditorMoreMenuProps = {
 
 export function EditorMoreMenu({
   canEdit,
+  canChangeExpiry: canChangeExpiryProp,
   focus,
   markdownView,
   burnMode,
@@ -51,6 +53,7 @@ export function EditorMoreMenu({
   onLockNow,
   onOpenChange,
 }: EditorMoreMenuProps) {
+  const canChangeExpiry = canChangeExpiryProp ?? canEdit;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const exportActions = useExportActions({
@@ -173,7 +176,7 @@ export function EditorMoreMenu({
               </>
             )}
 
-            {canEdit && (
+            {canChangeExpiry && (
               <>
                 <div className="my-1 border-t border-border/60" role="separator" />
                 <p className="px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
