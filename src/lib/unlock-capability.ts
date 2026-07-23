@@ -13,21 +13,21 @@ export function resolveUnlockCapability(args: {
 export function lockedBadgeLabel(capability: UnlockCapability): string {
   switch (capability) {
     case "editor":
-      return "Locked · editable";
+      return "Ready to edit";
     case "reader":
-      return "Locked · read-only";
+      return "Read-only link";
     default:
-      return "Locked";
+      return "Encrypted place";
   }
 }
 
 export function lockedDescription(capability: UnlockCapability): string {
   switch (capability) {
     case "editor":
-      return "Enter your password to unlock editing, or import an editor capability you received out-of-band.";
+      return "Enter the place password to unlock. Your password stays on this device.";
     case "reader":
-      return "Re-open your read-only share link, or enter the place password if you have it.";
+      return "This link can open the note for reading. Use the place password if you need to edit.";
     default:
-      return "Enter the password to unlock this place.";
+      return "Enter the place password to decrypt and open your notes.";
   }
 }

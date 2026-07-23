@@ -5,7 +5,7 @@ import { ShieldCheck } from "lucide-react";
 import { Hero } from "@/components/landing/hero";
 import { ProductMockup } from "@/components/landing/product-mockup";
 import { Reveal } from "@/components/site/reveal";
-import { SiteLayout } from "@/components/site/site-layout";
+import { NoteShell } from "@/components/site/note-shell";
 import { CryptoSpec } from "@/components/security/crypto-spec";
 import { ThreatModelFlow } from "@/components/security/threat-model-flow";
 import { VisibilityTable } from "@/components/security/visibility-table";
@@ -75,7 +75,7 @@ function Landing() {
   };
 
   return (
-    <SiteLayout onScrollTo={scrollTo}>
+    <NoteShell footer="site" onScrollTo={scrollTo}>
       <div className="mx-auto max-w-6xl px-4 sm:px-8">
         <Hero heroRef={heroRef} />
 
@@ -241,6 +241,6 @@ function Landing() {
           </button>
         </div>
       )}
-    </SiteLayout>
+    </NoteShell>
   );
 }

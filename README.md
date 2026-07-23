@@ -22,12 +22,14 @@ supabase db push
 npm run vendor:ksp
 supabase functions deploy ksp-append-version
 supabase functions deploy ksp-create-page
+supabase functions deploy ksp-migrate-page
 ```
 
 | Edge function | Purpose |
 |---------------|---------|
 | `ksp-create-page` | Verify owner create signature, then insert page |
 | `ksp-append-version` | Verify editor edit signature, then append version |
+| `ksp-migrate-page` | Verify create signature + legacy `edit_token`, then rewrite place to KSP |
 
 Direct client calls to `kodama_ksp_append_version` are revoked for anon/authenticated roles; only the `ksp-append-version` edge function (service role) may invoke it after verification. Attachment and expiry RPCs remain open until signed edge functions are added.
 

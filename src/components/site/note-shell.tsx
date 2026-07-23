@@ -19,6 +19,7 @@ type NoteShellProps = {
   className?: string;
   /** Lock shell to viewport height so inner panes can scroll (editor page). */
   fillViewport?: boolean;
+  onScrollTo?: (id: string) => void;
 };
 
 const CENTERED_MAIN_HEIGHT = "min-h-[calc(100dvh-3.5rem)] sm:min-h-[calc(100dvh-4rem)] lg:min-h-[calc(100dvh-4.5rem)]";
@@ -33,6 +34,7 @@ export function NoteShell({
   atmosphereClassName = "note-atmosphere",
   className,
   fillViewport = false,
+  onScrollTo,
 }: NoteShellProps) {
   const centeredMainClass = centered
     ? `flex items-center justify-center px-6 ${
@@ -59,7 +61,16 @@ export function NoteShell({
       <div
         className={`relative z-10 flex flex-col ${fillViewport ? "h-full min-h-0" : "min-h-screen"}`}
       >
-        {showHeader && <SiteHeader />}
+        {showHeader && (
+          <a
+            href="#main"
+            className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-4 focus-visible:z-[100] focus-visible:rounded-full focus-visible:bg-primary focus-visible:px-4 focus-visible:py-2 focus-visible:font-sans focus-visible:text-sm focus-visible:text-primary-foreground"
+          >
+            Skip to content
+          </a>
+        )}
+
+        {showHeader && <SiteHeader onScrollTo={onScrollTo} />}
 
         <main
           id="main"

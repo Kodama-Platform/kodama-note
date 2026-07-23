@@ -6,11 +6,16 @@ import {
   Focus,
   Lock,
   MoreHorizontal,
+  RotateCcw,
+  Save,
   Timer,
 } from "lucide-react";
 
+import { NoteAppearancePicker } from "@/components/note-appearance-picker";
 import { BURN_MODES, type BurnMode } from "@/lib/pages";
 import { AUTO_LOCK_OPTIONS, autoLockLabel, type AutoLockDuration } from "@/lib/auto-lock";
+import type { NoteAppearance } from "@/lib/note-appearance";
+import type { SaveMode } from "@/lib/save-mode";
 import type { WorkbookPayload } from "@/lib/workbook";
 import { useExportActions } from "@/components/export-menu";
 
@@ -22,14 +27,20 @@ type EditorMoreMenuProps = {
   burnMode: BurnMode;
   expirySaving: boolean;
   autoLockDuration: AutoLockDuration;
+  saveMode?: SaveMode;
+  canReload?: boolean;
   slug: string;
   workbook: WorkbookPayload;
   activeSheetTitle: string;
   getActiveText: () => string;
+  noteAppearance?: NoteAppearance;
+  onChangeNoteAppearance?: (next: NoteAppearance) => void;
   onToggleFocus: () => void;
   onToggleMarkdownView: () => void;
   onChangeExpiry: (mode: BurnMode) => void;
   onChangeAutoLockDuration: (duration: AutoLockDuration) => void;
+  onChangeSaveMode?: (mode: SaveMode) => void;
+  onReload?: () => void;
   onLockNow?: () => void;
   onOpenChange?: (open: boolean) => void;
 };
@@ -42,6 +53,8 @@ export function EditorMoreMenu({
   burnMode,
   expirySaving,
   autoLockDuration,
+  saveMode,
+  canReload,
   slug,
   workbook,
   activeSheetTitle,
@@ -50,6 +63,10 @@ export function EditorMoreMenu({
   onToggleMarkdownView,
   onChangeExpiry,
   onChangeAutoLockDuration,
+  onChangeSaveMode,
+  onReload,
+  noteAppearance,
+  onChangeNoteAppearance,
   onLockNow,
   onOpenChange,
 }: EditorMoreMenuProps) {
@@ -99,8 +116,9 @@ export function EditorMoreMenu({
           />
           <div
             role="menu"
-            className="absolute right-0 z-40 mt-1.5 w-56 overflow-hidden rounded-xl border border-border/80 bg-card/95 p-1 shadow-card backdrop-blur-md"
+            className="absolute right-0 z-40 mt-1.5 max-h-[min(80vh,32rem)] w-72 overflow-y-auto overflow-x-hidden rounded-xl border border-border/80 bg-card/95 p-1 shadow-card backdrop-blur-md"
           >
+            <SectionLabel>Writing</SectionLabel>
             <MenuToggle
               icon={<Focus className="h-3.5 w-3.5" />}
               label="Focus mode"
@@ -121,8 +139,68 @@ export function EditorMoreMenu({
               }}
             />
 
-            <div className="my-1 border-t border-border/60" role="separator" />
+            {noteAppearance && onChangeNoteAppearance && (
+              <>
+                <div className="my-1 border-t border-border/60" role="separator" />
+                <NoteAppearancePicker
+                  compact
+                  value={noteAppearance}
+                  onChange={onChangeNoteAppearance}
+                />
+              </>
+            )}
 
+            {onChangeSaveMode && saveMode && (
+              <>
+                <div className="my-1 border-t border-border/60" role="separator" />
+                <SectionLabel>Save</SectionLabel>
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={saveMode === "auto"}
+                  onClick={() => {
+                    onChangeSaveMode("auto");
+                    setMenuOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light transition-colors hover:bg-primary/5 ${
+                    saveMode === "auto" ? "bg-primary/10" : ""
+                  }`}
+                >
+                  <Save className="h-3.5 w-3.5 text-primary" />
+                  <span className="flex-1 font-medium text-foreground">Auto-save</span>
+                  {saveMode === "auto" && <Check className="h-3 w-3 text-primary" />}
+                </button>
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={saveMode === "manual"}
+                  onClick={() => {
+                    onChangeSaveMode("manual");
+                    setMenuOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light transition-colors hover:bg-primary/5 ${
+                    saveMode === "manual" ? "bg-primary/10" : ""
+                  }`}
+                >
+                  <Save className="h-3.5 w-3.5 text-primary" />
+                  <span className="flex-1 font-medium text-foreground">Manual save</span>
+                  {saveMode === "manual" && <Check className="h-3 w-3 text-primary" />}
+                </button>
+                {canReload && onReload && (
+                  <MenuItem
+                    icon={<RotateCcw className="h-3.5 w-3.5" />}
+                    label="Reload last saved"
+                    onClick={() => {
+                      onReload();
+                      setMenuOpen(false);
+                    }}
+                  />
+                )}
+              </>
+            )}
+
+            <div className="my-1 border-t border-border/60" role="separator" />
+            <SectionLabel>Export</SectionLabel>
             {exportActions.items.map((item) => (
               <MenuItem key={item.label} icon={item.icon} label={item.label} onClick={item.onClick} />
             ))}
@@ -130,9 +208,7 @@ export function EditorMoreMenu({
             {onLockNow && (
               <>
                 <div className="my-1 border-t border-border/60" role="separator" />
-                <p className="px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Security
-                </p>
+                <SectionLabel>Security</SectionLabel>
                 <MenuItem
                   icon={<Lock className="h-3.5 w-3.5" />}
                   label="Lock now"
@@ -141,8 +217,8 @@ export function EditorMoreMenu({
                     setMenuOpen(false);
                   }}
                 />
-                <p className="px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Auto-lock
+                <p className="px-2.5 py-1 text-[10px] font-light text-muted-foreground">
+                  Auto-lock · {autoLockLabel(autoLockDuration)}
                 </p>
                 {AUTO_LOCK_OPTIONS.map((option) => (
                   <button
@@ -170,18 +246,13 @@ export function EditorMoreMenu({
                     )}
                   </button>
                 ))}
-                <p className="px-2.5 pb-1 text-[10px] font-light text-muted-foreground">
-                  Currently {autoLockLabel(autoLockDuration).toLowerCase()}
-                </p>
               </>
             )}
 
             {canChangeExpiry && (
               <>
                 <div className="my-1 border-t border-border/60" role="separator" />
-                <p className="px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Lifetime
-                </p>
+                <SectionLabel>Lifetime</SectionLabel>
                 {BURN_MODES.map((m) => (
                   <button
                     key={m.value}
@@ -217,6 +288,14 @@ export function EditorMoreMenu({
         </>
       )}
     </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+      {children}
+    </p>
   );
 }
 

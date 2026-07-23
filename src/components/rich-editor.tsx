@@ -58,6 +58,8 @@ export type RichEditorHandle = {
   getMarkdown: () => string;
   setMarkdown: (markdown: string) => void;
   focus: () => void;
+  getEditor: () => Editor | null;
+  openLinkDialog: () => void;
   countFindMatches: (query: string) => number;
   findMatchAt: (query: string, matchIndex: number) => boolean;
   replaceMatchAt: (query: string, replacement: string, matchIndex: number) => boolean;
@@ -81,6 +83,7 @@ type RichEditorProps = {
   onAttachmentAdded?: (id: string) => void;
   autoFocus?: boolean;
   focusMode?: boolean;
+  onEditorReady?: (editor: Editor | null) => void;
 };
 
 
@@ -114,7 +117,22 @@ function linkTargetFromEvent(event: MouseEvent, root: HTMLElement): HTMLAnchorEl
 
 export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
   function RichEditor(
-    { initialContent, onMarkdownChange, onBaseline, slug, crypto, canEdit: canEditProp, canUpload: canUploadProp, allowedAttachmentIds, planTier = "free", sheetAttachmentCount = 0, onAttachmentAdded, autoFocus = true, focusMode = false },
+    {
+      initialContent,
+      onMarkdownChange,
+      onBaseline,
+      slug,
+      crypto,
+      canEdit: canEditProp,
+      canUpload: canUploadProp,
+      allowedAttachmentIds,
+      planTier = "free",
+      sheetAttachmentCount = 0,
+      onAttachmentAdded,
+      autoFocus = true,
+      focusMode = false,
+      onEditorReady,
+    },
     ref,
   ) {
     const canEdit = canEditProp ?? false;
@@ -245,7 +263,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
         TableCell,
         createKodamaImageExtension({ slug, crypto, allowedAttachmentIds }),
         Placeholder.configure({
-          placeholder: "Start writing…",
+          placeholder: "Start writing… Use # for headings, or the format bar.",
         }),
         Markdown.configure({
           html: false,
@@ -260,7 +278,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
       editable: canEdit,
       editorProps: {
         attributes: {
-          class: "tiptap reading-mode min-h-[60vh] outline-none",
+          class: "tiptap reading-mode min-h-[50vh] outline-none sm:min-h-[60vh]",
           "data-editor-surface": "true",
           spellcheck: "true",
         },
@@ -366,6 +384,11 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
     }, [editor, canEdit]);
 
     useEffect(() => {
+      onEditorReady?.(editor);
+      return () => onEditorReady?.(null);
+    }, [editor, onEditorReady]);
+
+    useEffect(() => {
       if (!editor) return;
       const el = editor.view.dom;
       const onTab = (event: KeyboardEvent) => {
@@ -425,6 +448,8 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(
           onMarkdownChange(normalized);
         },
         focus: () => editor?.commands.focus(),
+        getEditor: () => editorRef.current,
+        openLinkDialog: () => openLinkDialogRef.current(),
         countFindMatches: (query: string) => {
           if (!editor || !query) return 0;
           return collectTextMatches(editor.state.doc, query).length;

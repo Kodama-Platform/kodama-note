@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
 import { useState } from "react";
-import { Flame, Loader2, Lock } from "lucide-react";
+import { ChevronDown, Flame, Loader2, Lock } from "lucide-react";
 
 import { NoteShell } from "@/components/site/note-shell";
 import type { LockReason } from "@/lib/lock-session";
@@ -49,7 +49,7 @@ export function LockedScreen({
     <GateShell>
       <NoteCard>
         <NoteBadge>{lockedBadgeLabel(capability)}</NoteBadge>
-        <h1 className="mt-4 font-display text-[1.65rem] font-light leading-tight tracking-tight text-foreground sm:text-3xl">
+        <h1 className="mt-4 font-display text-[1.75rem] font-light leading-tight tracking-tight text-foreground sm:text-3xl">
           {reason === "inactivity" ? (
             <>
               <span className="text-primary">Locked</span> for your privacy
@@ -60,12 +60,12 @@ export function LockedScreen({
             </>
           )}
         </h1>
-        <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground sm:text-base">
+        <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground sm:text-[0.95rem]">
           {lockedDescription(capability)}
         </p>
         {reason === "inactivity" && (
           <p className="mt-2 text-xs font-light text-muted-foreground">
-            Kodama cleared decrypted note content from memory after a period of inactivity.
+            Decrypted content was cleared after a period of inactivity.
           </p>
         )}
         {expiryNote && (
@@ -74,14 +74,14 @@ export function LockedScreen({
           </p>
         )}
         {shareLinkUnlocking ? (
-          <div className="mt-8 flex h-12 items-center justify-center gap-2 text-sm font-light text-muted-foreground">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Opening read-only link…
+          <div className="mt-10 flex min-h-14 flex-col items-center justify-center gap-2 text-sm font-light text-muted-foreground">
+            {busy ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : null}
+            Opening your shared note…
           </div>
         ) : passwordFallback ? (
-          <form onSubmit={onSubmit} className="mt-8 space-y-4">
+          <form onSubmit={onSubmit} className="mt-8 space-y-5">
             <PasswordInput
-              label="Password"
+              label="Place password"
               value={password}
               onChange={onPasswordChange}
               autoFocus={autoFocusPassword && !showImport}
@@ -89,7 +89,7 @@ export function LockedScreen({
             <button
               type="submit"
               disabled={busy || !password}
-              className="btn-moss mt-2 flex h-12 w-full items-center justify-center gap-2 disabled:opacity-60"
+              className="btn-moss mt-1 flex h-12 w-full items-center justify-center gap-2 text-base disabled:opacity-60"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
               {busy ? "Unlocking…" : "Unlock"}
@@ -97,25 +97,29 @@ export function LockedScreen({
           </form>
         ) : null}
         {onImportEditorCapability && passwordFallback && (
-          <div className="mt-6 border-t border-border/60 pt-6">
+          <div className="mt-8 border-t border-border/50 pt-4">
             <button
               type="button"
               onClick={() => setShowImport((v) => !v)}
-              className="text-xs font-light text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              className="inline-flex items-center gap-1.5 text-[11px] font-light text-muted-foreground/80 transition-colors hover:text-muted-foreground"
+              aria-expanded={showImport}
             >
-              {showImport ? "Hide editor capability import" : "Have an editor capability?"}
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${showImport ? "rotate-180" : ""}`}
+              />
+              Advanced · paste editor capability
             </button>
             {showImport && (
               <div className="mt-3 space-y-3">
                 <label className="block">
-                  <span className="mb-2 block font-mono text-[11px] uppercase tracking-[0.2em] text-clay">
-                    Paste capability JSON
+                  <span className="mb-2 block font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    Capability JSON
                   </span>
                   <textarea
                     value={importRaw}
                     onChange={(e) => setImportRaw(e.target.value)}
-                    rows={5}
-                    className="w-full rounded-xl border border-border/80 bg-background/50 px-3 py-2 font-mono text-xs text-foreground"
+                    rows={4}
+                    className="w-full rounded-xl border border-border/80 bg-background/50 px-3 py-2.5 font-mono text-xs text-foreground outline-none ring-primary/25 focus:ring-2"
                     placeholder='{"protocol":"ksp-v1","read":"…","editor":"…"}'
                   />
                 </label>
@@ -123,7 +127,7 @@ export function LockedScreen({
                   type="button"
                   disabled={busy || !importRaw.trim()}
                   onClick={() => void onImportEditorCapability(importRaw.trim())}
-                  className="btn-moss flex h-10 w-full items-center justify-center gap-2 text-sm disabled:opacity-60"
+                  className="note-toolbar-btn flex h-10 w-full items-center justify-center gap-2 !rounded-xl text-sm disabled:opacity-60"
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Import & unlock
@@ -174,7 +178,7 @@ function PasswordInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block font-mono text-[11px] uppercase tracking-[0.2em] text-clay">
+      <span className="mb-2 block font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </span>
       <input
@@ -183,7 +187,7 @@ function PasswordInput({
         onChange={(e) => onChange(e.target.value)}
         autoFocus={autoFocus}
         autoComplete="current-password"
-        className="w-full rounded-xl border border-border/80 bg-background/50 px-4 py-3 text-sm text-foreground outline-none ring-primary/30 transition-shadow focus:ring-2"
+        className="w-full rounded-xl border border-border/80 bg-background/60 px-4 py-3.5 text-base text-foreground outline-none ring-primary/30 transition-shadow focus:ring-2"
       />
     </label>
   );

@@ -19,7 +19,7 @@ import { BURN_MODES, createPage, getPage, type BurnMode, type GetPageResult } fr
 import { pageQueryKey, type ExistingPage } from "@/lib/page-query";
 import { resolveUnlockCapability, type UnlockCapability } from "@/lib/unlock-capability";
 import { editorSecretsFromFragment, getFragmentCapability, parseEditorCapabilityImport } from "@/lib/ksp-fragment";
-import { createKspPlace, isKspPlaceMeta } from "@/lib/ksp-place";
+import { createKspWorkbookPlace, isKspPlaceMeta } from "@/lib/ksp-place";
 import { readKspSecrets, writeKspSecrets } from "@/lib/ksp-secrets";
 import { unlockErrorMessage, unlockPlace, unlockPlaceWithEditorImport } from "@/lib/unlock-place";
 import {
@@ -352,7 +352,7 @@ function CreateGate({
       setEncryptPhase("deriving");
       const workbookPlaintext = serializeWorkbook(createEmptyWorkbook());
       setEncryptPhase("encrypting");
-      const ksp = await createKspPlace({ slug, password: pw, workbookPlaintext });
+      const ksp = await createKspWorkbookPlace({ slug, password: pw, workbookPlaintext });
       setEncryptPhase("uploading");
       const res = await createPage({
         slug,
@@ -404,21 +404,29 @@ function CreateGate({
     <GateShell>
       <NoteCard>
         <NoteBadge>New place</NoteBadge>
-        <h1 className="mt-4 font-display text-[1.65rem] font-light leading-tight tracking-tight text-foreground sm:text-3xl">
-          Name your <span className="text-primary">/{slug}</span>
+        <h1 className="mt-4 font-display text-[1.75rem] font-light leading-tight tracking-tight text-foreground sm:text-3xl">
+          Create <span className="text-primary">/{slug}</span>
         </h1>
-        <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground sm:text-base">
-          Your password never leaves your device. We cannot reset it — if you lose it, this place
-          cannot be recovered.
+        <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground sm:text-[0.95rem]">
+          Choose a password only you know. It never leaves this device — and we cannot recover it
+          if you forget it.
         </p>
-        <form onSubmit={submit} className="mt-8 space-y-4">
-          <PasswordInput label="Create password" value={pw} onChange={setPw} autoFocus />
-          <PasswordInput label="Confirm password" value={pw2} onChange={setPw2} />
+        <form onSubmit={submit} className="mt-8 space-y-6">
+          <section className="space-y-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              1 · Password
+            </p>
+            <PasswordInput label="Create password" value={pw} onChange={setPw} autoFocus />
+            <PasswordInput label="Confirm password" value={pw2} onChange={setPw2} />
+            <p className="text-[11px] font-light text-muted-foreground">
+              At least 6 characters. Prefer a phrase you can remember.
+            </p>
+          </section>
 
-          <div>
-            <span className="mb-2 block font-mono text-[11px] uppercase tracking-[0.2em] text-clay">
-              Lifetime
-            </span>
+          <section>
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              2 · Lifetime
+            </p>
             <div className="grid gap-2">
               {BURN_MODES.map((m) => (
                 <label
@@ -448,14 +456,18 @@ function CreateGate({
                 </label>
               ))}
             </div>
-            <p className="mt-3 text-[11px] font-light text-muted-foreground">
-              You can change this any time from the editor.
+            <p className="mt-2 text-[11px] font-light text-muted-foreground">
+              You can change this later from the note menu.
             </p>
-          </div>
+          </section>
 
-          <button type="submit" disabled={busy} className="btn-moss mt-2 flex h-12 w-full items-center justify-center gap-2 disabled:opacity-60">
+          <button
+            type="submit"
+            disabled={busy}
+            className="btn-moss flex h-12 w-full items-center justify-center gap-2 text-base disabled:opacity-60"
+          >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-            {busy ? "Securing your place…" : "Create encrypted page"}
+            {busy ? "Securing your place…" : "Create & start writing"}
           </button>
 
           {encryptPhase && <EncryptionProgress phase={encryptPhase} />}

@@ -58,6 +58,7 @@ describe("ksp-place bundle flow", () => {
     expect(parseKspWire(created.ciphertext)?.storage_mode).toBe("bundle");
     expect(created.kdf_params.storage_mode).toBe("bundle");
     expect(created.kdf_params.version).toBe(1);
+    expect(created.kdf_params.editor_public_keys.length).toBeGreaterThan(0);
 
     const readKey = base64ToBytes(created.readerCapability);
     const decrypted = await decryptKspWorkbook({

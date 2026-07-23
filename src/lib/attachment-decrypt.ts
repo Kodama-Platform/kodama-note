@@ -1,8 +1,5 @@
 import type { PlaceCryptoSession } from "@/lib/crypto-context";
-import {
-  decryptAttachmentFilename,
-  decryptAttachmentBytes,
-} from "@/lib/attachment-crypto";
+import { decryptAttachmentFilename } from "@/lib/attachment-crypto";
 import type { AttachmentRow } from "@/lib/pages";
 
 export type DecryptedAttachment = AttachmentRow & { filename: string };
@@ -22,5 +19,3 @@ export async function decryptAttachmentFilenames(
     }),
   );
 }
-
-export { decryptAttachmentBytes };

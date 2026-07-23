@@ -378,14 +378,7 @@ export function getSheetAttachmentIdsForDelete(
   return sheet?.attachment_ids ? [...sheet.attachment_ids] : [];
 }
 
-export function sheetOwnsAttachment(payload: WorkbookPayload, sheetId: string, attId: string): boolean {
-  const key = attId.toLowerCase();
-  const sheet = getSheetById(payload, sheetId);
-  if (!sheet) return false;
-  return getSheetAttachmentIds(sheet).has(key);
-}
-
-export function findSheetOwningAttachment(
+function findSheetOwningAttachment(
   payload: WorkbookPayload,
   attId: string,
 ): string | undefined {

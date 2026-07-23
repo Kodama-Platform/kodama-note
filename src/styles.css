@@ -91,21 +91,22 @@
 
 .dark {
   --background: 18 19 16;
-  --foreground: 235 231 224;
+  /* Soft warm stone — avoid pure white on dark chrome */
+  --foreground: 201 196 184;
   --muted: 40 43 36;
-  --muted-foreground: 148 143 133;
+  --muted-foreground: 138 133 122;
   --card: 24 25 21;
-  --card-foreground: 235 231 224;
+  --card-foreground: 201 196 184;
   --popover: 24 25 21;
-  --popover-foreground: 235 231 224;
+  --popover-foreground: 201 196 184;
   --depth-1: 10 11 9;
   --border: 48 52 44;
   --primary: 132 158 124;
   --primary-foreground: 10 11 9;
   --secondary: 40 43 36;
-  --secondary-foreground: 235 231 224;
+  --secondary-foreground: 201 196 184;
   --accent: 40 43 36;
-  --accent-foreground: 235 231 224;
+  --accent-foreground: 201 196 184;
   --destructive: 201 106 95;
   --destructive-foreground: 18 19 16;
   --input: 48 52 44;
@@ -117,7 +118,7 @@
   --ember: 224 148 76;
   --moss: 132 158 124;
   --moss-deep: 106 128 100;
-  --bark: 235 231 224;
+  --bark: 201 196 184;
   --sand: 18 19 16;
   --mist: 40 43 36;
   --line: 48 52 44;
@@ -319,32 +320,6 @@ html:not(.dark) .firefly {
   opacity: 0.6;
 }
 
-@keyframes mistBandDrift {
-  0% {
-    transform: translate(-6%, -50%);
-    opacity: 0.45;
-  }
-  50% {
-    transform: translate(6%, -50%);
-    opacity: 0.9;
-  }
-  100% {
-    transform: translate(-6%, -50%);
-    opacity: 0.45;
-  }
-}
-
-.k-mist-band {
-  background: radial-gradient(58% 100% at 50% 50%, rgb(var(--glow) / 0.1), transparent 72%);
-  filter: blur(52px);
-  animation: mistBandDrift 28s ease-in-out infinite;
-  will-change: transform, opacity;
-}
-
-html:not(.dark) .k-mist-band {
-  background: radial-gradient(58% 100% at 50% 50%, rgb(var(--stone) / 0.14), transparent 72%);
-}
-
 @keyframes twinkle {
   0%,
   100% {
@@ -470,21 +445,6 @@ html:not(.dark) .k-mist-band {
   animation: floatSlow 9s ease-in-out infinite;
 }
 
-@keyframes floatOrbit {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-.k-float-orbit {
-  animation: floatOrbit 11s ease-in-out infinite;
-  will-change: transform;
-}
-
 @keyframes caretBlink {
   0%,
   49% {
@@ -543,14 +503,6 @@ html:not(.dark) .k-mist-band {
 
 .animate-rise-delay-1 {
   animation-delay: 0.08s;
-}
-
-.animate-rise-delay-2 {
-  animation-delay: 0.16s;
-}
-
-.animate-rise-delay-3 {
-  animation-delay: 0.24s;
 }
 
 .reveal-on-scroll {
@@ -722,6 +674,75 @@ html:not(.dark) .k-mist-band {
 .note-toolbar-btn[aria-pressed="true"] {
   border-color: rgb(var(--primary) / 0.35);
   background: rgb(var(--primary) / 0.1);
+}
+
+.editor-format-toolbar {
+  flex-shrink: 0;
+  border-bottom: 1px solid rgb(var(--border) / 0.45);
+  background: transparent;
+}
+
+.editor-format-toolbar-scroll {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding: 0.4rem 0.15rem 0.5rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.editor-format-toolbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-format-group {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.05rem;
+  padding: 0.15rem;
+  border-radius: 0.65rem;
+  background: rgb(var(--muted) / 0.35);
+}
+
+.editor-format-btn {
+  display: inline-flex;
+  height: 1.75rem;
+  min-width: 1.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.45rem;
+  border: none;
+  color: rgb(var(--muted-foreground) / 0.92);
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.editor-format-btn:hover:not(:disabled) {
+  background: rgb(var(--background) / 0.7);
+  color: rgb(var(--foreground));
+}
+
+.editor-format-btn[aria-pressed="true"] {
+  background: rgb(var(--background) / 0.95);
+  color: rgb(var(--foreground));
+  box-shadow: 0 0 0 1px rgb(var(--border) / 0.55);
+}
+
+.editor-format-btn:disabled {
+  opacity: 0.32;
+}
+
+.dark .editor-format-group {
+  background: rgb(var(--muted) / 0.28);
+}
+
+.dark .editor-format-btn[aria-pressed="true"] {
+  background: rgb(var(--card) / 0.9);
 }
 
 .note-sheet-tabs {
@@ -920,16 +941,17 @@ html:not(.dark) .k-mist-band {
   flex-shrink: 0;
   align-items: center;
   gap: 0.375rem;
-  height: 2rem;
+  height: 2.125rem;
   margin-bottom: -1px;
-  border: 1px dashed rgb(var(--border) / 0.65);
+  border: 1px dashed rgb(var(--primary) / 0.35);
   border-bottom: none;
   border-radius: 0.5rem 0.5rem 0 0;
-  background: transparent;
-  padding: 0 0.75rem;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: rgb(var(--muted-foreground));
+  background: rgb(var(--primary) / 0.04);
+  padding: 0 0.85rem;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: rgb(var(--primary));
   transition:
     border-color 0.2s ease,
     background-color 0.2s ease,
@@ -1013,13 +1035,6 @@ html:not(.dark) .k-mist-band {
   cursor: not-allowed;
 }
 
-.note-chrome {
-  border-color: rgb(var(--border) / 0.7);
-  background: rgb(var(--background) / 0.85);
-  backdrop-filter: blur(12px);
-}
-
-
 .focus-mode [data-editor-chrome="true"] {
   opacity: 0;
   pointer-events: none;
@@ -1077,6 +1092,27 @@ html:not(.dark) .k-mist-band {
   min-height: min(60vh, 100%);
 }
 
+/* Writing surface — colors from note appearance (`--note-*`) */
+[data-editor-scroll="true"] {
+  --note-bg: transparent;
+  --note-fg: rgb(var(--foreground));
+  --note-muted: rgb(var(--muted-foreground));
+  border-radius: 0.75rem;
+  background: var(--note-bg);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+[data-editor-scroll="true"][data-note-surface="filled"] {
+  padding-inline: 0.75rem;
+  padding-block: 0.5rem 1.25rem;
+}
+
+@media (min-width: 640px) {
+  [data-editor-scroll="true"][data-note-surface="filled"] {
+    padding-inline: 1.25rem;
+  }
+}
+
 /* TipTap live editor typography */
 .tiptap,
 .ProseMirror {
@@ -1084,8 +1120,8 @@ html:not(.dark) .k-mist-band {
   font-size: 17px;
   font-weight: 300;
   line-height: 1.75;
-  color: rgb(var(--foreground));
-  caret-color: rgb(var(--foreground));
+  color: var(--note-fg, rgb(var(--foreground)));
+  caret-color: var(--note-fg, rgb(var(--foreground)));
 }
 
 @media (min-width: 640px) {
@@ -1360,31 +1396,33 @@ html:not(.dark) .k-mist-band {
 
 .tiptap p.is-editor-empty:first-child::before,
 .ProseMirror p.is-editor-empty:first-child::before {
-  color: rgb(var(--muted-foreground) / 0.5);
+  color: color-mix(in oklab, var(--note-muted, rgb(var(--muted-foreground))) 70%, transparent);
   content: attr(data-placeholder);
   float: left;
   height: 0;
   pointer-events: none;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 300;
 }
 
-.hairline {
-  box-shadow: inset 0 -1px 0 var(--color-border);
+.markdown-view,
+[data-editor-scroll="true"] .markdown-view {
+  color: var(--note-fg, rgb(var(--foreground)));
 }
 
-.kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  padding: 0 0.35rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-muted);
-  color: var(--color-muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  line-height: 1;
+.tiptap.reading-mode,
+.ProseMirror.reading-mode {
+  max-width: 42rem;
+  margin-inline: auto;
+  padding-block: 0.5rem 2rem;
+}
+
+@media (max-width: 767px) {
+  .tiptap.reading-mode,
+  .ProseMirror.reading-mode {
+    padding-inline: 0.125rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1401,7 +1439,6 @@ html:not(.dark) .k-mist-band {
   }
 
   .k-float-slow,
-  .k-float-orbit,
   .k-dust,
   .animate-breathe,
   .firefly-path,
@@ -1409,7 +1446,6 @@ html:not(.dark) .k-mist-band {
   .wind-mote,
   .hero-ray,
   .hero-mist,
-  .k-mist-band,
   .product-mockup,
   .animate-rise {
     animation: none !important;

@@ -14,13 +14,13 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const slug = body?.slug as string | undefined;
+    const edit_token = body?.edit_token as string | undefined;
     const ciphertext = body?.ciphertext as string | undefined;
     const salt = body?.salt as string | undefined;
     const iv = body?.iv as string | undefined;
     const kdf_params = body?.kdf_params as unknown;
-    const burn_mode = (body?.burn_mode as string | undefined) ?? "never";
 
-    if (!slug || !ciphertext || !salt || !iv || !kdf_params) {
+    if (!slug || !edit_token || !ciphertext || !salt || !iv || !kdf_params) {
       return jsonResponse({ error: "missing required fields" }, 400);
     }
 
@@ -30,24 +30,20 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createServiceClient();
-    const { data, error } = await supabase.rpc("kodama_create_page", {
+    const { data, error } = await supabase.rpc("kodama_migrate_page_to_ksp", {
       p_slug: slug,
+      p_edit_token: edit_token,
       p_ciphertext: ciphertext,
       p_salt: salt,
       p_iv: iv,
       p_kdf_params: kdf_params,
-      p_burn_mode: burn_mode,
     });
 
     if (error) {
-      if (error.code === "23505" || /duplicate|unique/i.test(error.message)) {
-        return jsonResponse({ ok: false, reason: "slug_taken" }, 409);
-      }
       return jsonResponse({ error: error.message }, 400);
     }
 
-    const row = data as { expires_at: string | null };
-    return jsonResponse({ ok: true, expires_at: row.expires_at });
+    return jsonResponse({ ok: true, ...(data as Record<string, unknown>) });
   } catch (err) {
     return jsonResponse({ error: err instanceof Error ? err.message : String(err) }, 500);
   }

@@ -39,6 +39,7 @@ export function setTheme(theme: Theme) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(KEY, theme);
   applyTheme(theme);
+  window.dispatchEvent(new Event("kodama-theme-change"));
 }
 
 let mqlListener: ((e: MediaQueryListEvent) => void) | null = null;

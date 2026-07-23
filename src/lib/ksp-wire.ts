@@ -21,7 +21,7 @@ export type KspWirePayload = {
   };
 };
 
-export function isKspWirePayload(raw: unknown): raw is KspWirePayload {
+function isKspWirePayload(raw: unknown): raw is KspWirePayload {
   return (
     !!raw &&
     typeof raw === "object" &&

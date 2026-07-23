@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 
 import { Reveal } from "@/components/site/reveal";
-import { SiteLayout } from "@/components/site/site-layout";
+import { NoteShell } from "@/components/site/note-shell";
 import { CryptoSpec } from "@/components/security/crypto-spec";
 import { ThreatModelFlow } from "@/components/security/threat-model-flow";
 import { VisibilityTable } from "@/components/security/visibility-table";
@@ -20,7 +20,7 @@ export const Route = createFileRoute("/security")({
 
 function SecurityPage() {
   return (
-    <SiteLayout>
+    <NoteShell footer="site">
       <div className="mx-auto max-w-3xl px-4 pb-24 sm:px-8 sm:pb-32">
         <Link
           to="/"
@@ -194,7 +194,7 @@ function SecurityPage() {
           </div>
         </Section>
       </div>
-    </SiteLayout>
+    </NoteShell>
   );
 }
 

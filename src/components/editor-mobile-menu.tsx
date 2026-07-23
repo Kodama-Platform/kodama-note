@@ -16,9 +16,11 @@ import {
   X,
 } from "lucide-react";
 
+import { NoteAppearancePicker } from "@/components/note-appearance-picker";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BURN_MODES, type BurnMode } from "@/lib/pages";
 import { AUTO_LOCK_OPTIONS, autoLockLabel, type AutoLockDuration } from "@/lib/auto-lock";
+import type { NoteAppearance } from "@/lib/note-appearance";
 import type { SaveMode } from "@/lib/save-mode";
 import type { WorkbookPayload } from "@/lib/workbook";
 import { useExportActions } from "@/components/export-menu";
@@ -55,6 +57,8 @@ type EditorMobileMenuProps = {
   onChangeExpiry: (mode: BurnMode) => void;
   autoLockDuration: AutoLockDuration;
   onChangeAutoLockDuration: (duration: AutoLockDuration) => void;
+  noteAppearance?: NoteAppearance;
+  onChangeNoteAppearance?: (next: NoteAppearance) => void;
   onLockNow?: () => void;
 };
 
@@ -88,6 +92,8 @@ export function EditorMobileMenu({
   onChangeExpiry,
   autoLockDuration,
   onChangeAutoLockDuration,
+  noteAppearance,
+  onChangeNoteAppearance,
   onLockNow,
 }: EditorMobileMenuProps) {
   const exportActions = useExportActions({
@@ -124,28 +130,76 @@ export function EditorMobileMenu({
       />
       <div className="relative mx-auto flex h-full max-w-lg flex-col px-4 pb-6 pt-3">
         <div className="flex items-center justify-between gap-3">
-          <p className="font-display text-lg font-medium tracking-tight text-foreground">Note menu</p>
+          <p className="font-display text-lg font-medium tracking-tight text-foreground">Menu</p>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border text-foreground"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="mt-4 flex flex-col gap-5 overflow-y-auto pb-4">
+          {/* Primary actions */}
+          <section className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={!readerShareUrl}
+              onClick={() => {
+                if (!readerShareUrl) return;
+                onCopyShare(readerShareUrl, "Read-only link copied");
+              }}
+              className="flex flex-col items-start gap-1 rounded-xl border border-border/70 bg-card/60 px-3 py-3 text-left disabled:opacity-40"
+            >
+              <Copy className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium text-foreground">Share</span>
+              <span className="text-[11px] text-muted-foreground">Read-only link</span>
+            </button>
+            {canSave && saveMode === "manual" ? (
+              <button
+                type="button"
+                onClick={() => onSave()}
+                disabled={status === "saving" || !isDirty}
+                className="flex flex-col items-start gap-1 rounded-xl border border-primary/30 bg-primary/10 px-3 py-3 text-left disabled:opacity-40"
+              >
+                <Save className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium text-foreground">Save</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {isDirty ? "Unsaved changes" : "Up to date"}
+                </span>
+              </button>
+            ) : (
+              <div className="flex flex-col items-start gap-1 rounded-xl border border-border/70 bg-card/60 px-3 py-3">
+                <MobileStatusInline status={status} isDirty={isDirty} />
+                <span className="text-[11px] text-muted-foreground">
+                  {saveMode === "auto" ? "Auto-save on" : "Manual save"}
+                </span>
+              </div>
+            )}
+            {onLockNow && (
+              <button
+                type="button"
+                onClick={() => {
+                  onLockNow();
+                  onClose();
+                }}
+                className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-border/70 px-3 py-3 text-sm font-medium text-foreground"
+              >
+                <Lock className="h-4 w-4 text-primary" />
+                Lock now
+              </button>
+            )}
+          </section>
+
           {canSave && (
             <section className="space-y-2">
-              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Save</p>
-              <MobileStatusRow status={status} isDirty={isDirty} />
+              <SectionLabel>Save mode</SectionLabel>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    onChangeSaveMode("auto");
-                  }}
+                  onClick={() => onChangeSaveMode("auto")}
                   className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
                     saveMode === "auto"
                       ? "border-primary/40 bg-primary/10 text-foreground"
@@ -156,9 +210,7 @@ export function EditorMobileMenu({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    onChangeSaveMode("manual");
-                  }}
+                  onClick={() => onChangeSaveMode("manual")}
                   className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
                     saveMode === "manual"
                       ? "border-primary/40 bg-primary/10 text-foreground"
@@ -169,77 +221,28 @@ export function EditorMobileMenu({
                 </button>
               </div>
               {saveMode === "manual" && (
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSave();
-                    }}
-                    disabled={status === "saving" || !isDirty}
-                    className="btn-moss flex-1 justify-center !py-2.5 !text-sm disabled:opacity-50"
-                  >
-                    <Save className="h-4 w-4" />
-                    Save all sheets
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onReload();
-                      onClose();
-                    }}
-                    disabled={status === "saving"}
-                    className="note-toolbar-btn !h-11 !px-3"
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onReload();
+                    onClose();
+                  }}
+                  disabled={status === "saving"}
+                  className="flex w-full items-center gap-2 rounded-xl border border-border/70 px-3 py-2.5 text-sm text-foreground disabled:opacity-50"
+                >
+                  <RotateCcw className="h-4 w-4 text-primary" />
+                  Reload last saved
+                </button>
               )}
             </section>
           )}
 
           <section className="space-y-1">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Tools</p>
-            <MobileAction
-              icon={<Search className="h-4 w-4" />}
-              label="Find & replace"
-              active={findOpen}
-              onClick={() => {
-                onToggleFind();
-                onClose();
-              }}
-            />
-          </section>
-
-          <section className="space-y-1">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Display</p>
-            <MobileAction
-              icon={<Focus className="h-4 w-4" />}
-              label="Focus mode"
-              active={focus}
-              onClick={() => {
-                onToggleFocus();
-                onClose();
-              }}
-            />
-            <MobileAction
-              icon={<FileCode2 className="h-4 w-4" />}
-              label="Markdown view"
-              active={markdownView}
-              onClick={() => {
-                onToggleMarkdownView();
-                onClose();
-              }}
-            />
-          </section>
-
-          <section className="space-y-1">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              Share
-            </p>
+            <SectionLabel>Share</SectionLabel>
             <MobileAction
               icon={<Copy className="h-4 w-4" />}
               label="Read-only link"
-              hint="Decrypt and read"
+              hint="Anyone can decrypt and read"
               disabled={!readerShareUrl}
               onClick={() => {
                 if (!readerShareUrl) return;
@@ -268,7 +271,47 @@ export function EditorMobileMenu({
           </section>
 
           <section className="space-y-1">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Export</p>
+            <SectionLabel>Writing</SectionLabel>
+            <MobileAction
+              icon={<Search className="h-4 w-4" />}
+              label="Find & replace"
+              active={findOpen}
+              onClick={() => {
+                onToggleFind();
+                onClose();
+              }}
+            />
+            <MobileAction
+              icon={<Focus className="h-4 w-4" />}
+              label="Focus mode"
+              active={focus}
+              onClick={() => {
+                onToggleFocus();
+                onClose();
+              }}
+            />
+            <MobileAction
+              icon={<FileCode2 className="h-4 w-4" />}
+              label="Markdown view"
+              active={markdownView}
+              onClick={() => {
+                onToggleMarkdownView();
+                onClose();
+              }}
+            />
+          </section>
+
+          {noteAppearance && onChangeNoteAppearance && (
+            <section className="rounded-xl border border-border/70 p-2">
+              <NoteAppearancePicker
+                value={noteAppearance}
+                onChange={onChangeNoteAppearance}
+              />
+            </section>
+          )}
+
+          <section className="space-y-1">
+            <SectionLabel>Export</SectionLabel>
             {exportActions.items.map((item) => (
               <MobileAction
                 key={item.label}
@@ -281,9 +324,7 @@ export function EditorMobileMenu({
 
           {canSave && (
             <section className="space-y-1">
-              <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                Lifetime
-              </p>
+              <SectionLabel>Lifetime</SectionLabel>
               {BURN_MODES.map((m) => (
                 <MobileAction
                   key={m.value}
@@ -309,23 +350,7 @@ export function EditorMobileMenu({
 
           {onLockNow && (
             <section className="space-y-2">
-              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                Security
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  onLockNow();
-                  onClose();
-                }}
-                className="flex w-full items-center gap-3 rounded-xl border border-border/70 px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-primary/5"
-              >
-                <Lock className="h-4 w-4 text-primary" />
-                Lock now
-              </button>
-              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                Auto-lock · {autoLockLabel(autoLockDuration)}
-              </p>
+              <SectionLabel>Security · Auto-lock {autoLockLabel(autoLockDuration)}</SectionLabel>
               <div className="grid grid-cols-2 gap-2">
                 {AUTO_LOCK_OPTIONS.map((option) => (
                   <button
@@ -365,7 +390,15 @@ export function EditorMobileMenu({
   );
 }
 
-function MobileStatusRow({ status, isDirty }: { status: SaveStatus; isDirty: boolean }) {
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+function MobileStatusInline({ status, isDirty }: { status: SaveStatus; isDirty: boolean }) {
   const displayStatus: SaveStatus =
     status === "saving" || status === "error"
       ? status
@@ -374,19 +407,19 @@ function MobileStatusRow({ status, isDirty }: { status: SaveStatus; isDirty: boo
         : status === "saved"
           ? "saved"
           : "idle";
-  const map: Record<SaveStatus, { label: string; icon: React.ReactNode; cls: string }> = {
-    idle: { label: "Ready", icon: <Check className="h-3.5 w-3.5" />, cls: "text-muted-foreground" },
-    dirty: { label: "Unsaved changes", icon: <Pencil className="h-3.5 w-3.5" />, cls: "text-amber-700 dark:text-amber-300" },
-    saving: { label: "Saving…", icon: <Loader2 className="h-3.5 w-3.5 animate-spin" />, cls: "text-primary" },
-    saved: { label: "Saved", icon: <Check className="h-3.5 w-3.5" />, cls: "text-emerald-700 dark:text-emerald-300" },
-    error: { label: "Save failed", icon: <CloudOff className="h-3.5 w-3.5" />, cls: "text-destructive" },
+  const map: Record<SaveStatus, { label: string; icon: React.ReactNode }> = {
+    idle: { label: "Ready", icon: <Check className="h-4 w-4 text-muted-foreground" /> },
+    dirty: { label: "Unsaved", icon: <Pencil className="h-4 w-4 text-amber-600" /> },
+    saving: { label: "Saving…", icon: <Loader2 className="h-4 w-4 animate-spin text-primary" /> },
+    saved: { label: "Saved", icon: <Check className="h-4 w-4 text-emerald-600" /> },
+    error: { label: "Save failed", icon: <CloudOff className="h-4 w-4 text-destructive" /> },
   };
   const v = map[displayStatus];
   return (
-    <div className={`flex items-center gap-2 rounded-xl border border-border/70 bg-card/50 px-3 py-2.5 text-sm ${v.cls}`}>
+    <>
       {v.icon}
-      {v.label}
-    </div>
+      <span className="text-sm font-medium text-foreground">{v.label}</span>
+    </>
   );
 }
 

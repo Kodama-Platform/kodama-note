@@ -19,8 +19,9 @@ import {
   type PlaceContent,
 } from "@kodama.page/ksp-core";
 
-import { editorSecretsFromFragment, getFragmentCapability } from "@/lib/ksp-fragment";
-import type { ExistingPage, SerializableKdfParams } from "@/lib/pages";
+import { getFragmentCapability } from "@/lib/ksp-fragment";
+import type { ExistingPage } from "@/lib/pages";
+import { migratePageToKsp } from "@/lib/pages";
 import type { KspSecrets } from "@/lib/ksp-secrets";
 import { readKspSecrets, writeKspSecrets } from "@/lib/ksp-secrets";
 import {
@@ -62,6 +63,13 @@ export function isKspPlaceMeta(raw: unknown): raw is KspPlaceMeta {
     (value as KspPlaceMeta).protocol === "ksp-v1" &&
     typeof (value as KspPlaceMeta).owner_public_key === "string"
   );
+}
+
+/** Create/migrate must persist at least one editor public key in kdf_params. */
+export function assertKspEditorPublicKeys(meta: Pick<KspPlaceMeta, "editor_public_keys">): void {
+  if (!Array.isArray(meta.editor_public_keys) || meta.editor_public_keys.length < 1) {
+    throw new Error("editor_public_keys required");
+  }
 }
 
 /** True when ciphertext or metadata indicates a KSP place. */
@@ -157,6 +165,7 @@ export async function createKspWorkbookPlace(args: {
 
   const wire = wireFromBundle({ version: result.metadata.version, bundle: result.bundle });
   const kdf_params = metaFromBundleCreate(result);
+  assertKspEditorPublicKeys(kdf_params);
 
   return {
     ciphertext: serializeKspWire(wire),
@@ -169,8 +178,48 @@ export async function createKspWorkbookPlace(args: {
   };
 }
 
-/** @deprecated Use createKspWorkbookPlace. */
-export const createKspPlace = createKspWorkbookPlace;
+/**
+ * Re-encrypt a legacy workbook as a KSP place and replace the server row in place.
+ * Caller should write secrets, clear the legacy edit token, and refresh page state.
+ */
+export async function migrateLegacyPlaceToKsp(args: {
+  slug: string;
+  password: string;
+  workbookPlaintext: string;
+  legacyEditToken: string;
+}): Promise<{
+  secrets: KspSecrets;
+  kdf_params: KspPlaceMeta;
+}> {
+  if (!args.legacyEditToken) {
+    throw new Error("Legacy edit access not available on this device");
+  }
+
+  const created = await createKspWorkbookPlace({
+    slug: args.slug,
+    password: args.password,
+    workbookPlaintext: args.workbookPlaintext,
+  });
+  assertKspEditorPublicKeys(created.kdf_params);
+
+  await migratePageToKsp({
+    slug: args.slug,
+    edit_token: args.legacyEditToken,
+    ciphertext: created.ciphertext,
+    salt: created.salt,
+    iv: created.iv,
+    kdf_params: created.kdf_params,
+  });
+
+  return {
+    secrets: {
+      readerCapability: created.readerCapability,
+      editorPrivateKey: created.editorPrivateKey,
+      ownerPrivateKey: created.ownerPrivateKey,
+    },
+    kdf_params: created.kdf_params,
+  };
+}
 
 export async function ensureKspSecrets(
   slug: string,
@@ -193,19 +242,6 @@ export async function ensureKspSecrets(
 
   writeKspSecrets(slug, secrets);
   return secrets;
-}
-
-export function readerSecretsFromFragment(): Pick<
-  KspSecrets,
-  "readerCapability" | "editorPrivateKey"
-> | null {
-  const editor = editorSecretsFromFragment();
-  if (editor) return editor;
-  const readFromUrl = getFragmentCapability("read");
-  if (readFromUrl) {
-    return { readerCapability: readFromUrl, editorPrivateKey: "" };
-  }
-  return null;
 }
 
 /** Verify KSP wire signatures before trusting decrypted content. */
@@ -431,8 +467,4 @@ export async function decryptKspBytes(args: {
     args.readKey,
     buildContentAad(args.slug, args.version, productType),
   );
-}
-
-export function kspMetaFromParams(params: SerializableKdfParams): KspPlaceMeta | null {
-  return isKspPlaceMeta(params) ? params : null;
 }

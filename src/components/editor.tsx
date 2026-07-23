@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -32,12 +32,15 @@ import {
   useHeaderScrolled,
 } from "@/components/site/header-chrome";
 import { AttachmentsPanel } from "@/components/attachments-panel";
+import { EditorFormatToolbar } from "@/components/editor-format-toolbar";
 import { EditorMobileMenu } from "@/components/editor-mobile-menu";
 import { EditorMoreMenu } from "@/components/editor-more-menu";
 import { FindReplace } from "@/components/find-replace";
 import { MarkdownView } from "@/components/markdown-view";
+import { MigrateToKspBanner } from "@/components/migrate-to-ksp-banner";
 import { Outline } from "@/components/outline";
 import { RichEditor, type RichEditorHandle } from "@/components/rich-editor";
+import type { Editor as TiptapEditor } from "@tiptap/react";
 import { DonateRibbon, useVisitCount } from "@/components/donate-ribbon";
 import { SheetTabBar } from "@/components/sheet-tab-bar";
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
@@ -45,15 +48,31 @@ import { useAutoLock } from "@/hooks/use-auto-lock";
 import { invalidateAttachmentList, prefetchAttachmentList } from "@/lib/attachment-list";
 import {
   autoLockLabel,
+  autoLockMsFor,
   getAutoLockDuration,
   setAutoLockDuration,
   type AutoLockDuration,
 } from "@/lib/auto-lock";
-import { encryptPlaceWorkbookForSave, canSignKspWorkbook, type PlaceCryptoSession } from "@/lib/crypto-context";
+import {
+  encryptPlaceWorkbookForSave,
+  canSignKspWorkbook,
+  kspSessionFromSecrets,
+  type PlaceCryptoSession,
+} from "@/lib/crypto-context";
 import type { LockReason } from "@/lib/lock-session";
+import {
+  getStoredNoteAppearance,
+  noteColorsToCssVars,
+  resolveNoteColors,
+  setStoredNoteAppearance,
+  type NoteAppearance,
+} from "@/lib/note-appearance";
+import { pageQueryKey } from "@/lib/page-query";
 import { getSaveMode, setSaveMode, type SaveMode } from "@/lib/save-mode";
+import { getStoredTheme, resolveTheme, watchSystemTheme } from "@/lib/theme";
 import type { UnlockCapability } from "@/lib/unlock-capability";
 import { setSheetHash } from "@/lib/hash-params";
+import { migrateLegacyPlaceToKsp } from "@/lib/ksp-place";
 import { deleteAttachment, savePage, updateExpiry, type BurnMode } from "@/lib/pages";
 import { flushActiveSheetMarkdown } from "@/lib/workbook-flush";
 import { getPlanTier } from "@/lib/plan-tier";
@@ -63,11 +82,10 @@ import {
   buildReadOnlyUrl,
   getFragmentCapability,
   isLegacyEditorFragment,
-  LEGACY_EDITOR_SENTINEL,
 } from "@/lib/ksp-fragment";
 import { resolveShareCapabilities, syncKspSecretsFromSession } from "@/lib/share-capabilities";
 import { hasKspEditorSecrets, readKspSecrets, writeKspSecrets } from "@/lib/ksp-secrets";
-import { readLegacyEditToken } from "@/lib/legacy-edit";
+import { clearLegacyEditToken, readLegacyEditToken } from "@/lib/legacy-edit";
 import {
   addSheet,
   addSheetAttachment,
@@ -117,7 +135,10 @@ export function Editor({
   onLock?: (reason: LockReason) => void;
 }) {
   const isReader = unlockCapability === "reader";
-  const legacyEditToken = useMemo(() => readLegacyEditToken(slug), [slug]);
+  const [legacyEditToken, setLegacyEditToken] = useState(() => readLegacyEditToken(slug));
+  useEffect(() => {
+    setLegacyEditToken(readLegacyEditToken(slug));
+  }, [slug]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [cryptoSession, setCryptoSession] = useState(crypto);
@@ -125,6 +146,9 @@ export function Editor({
     setCryptoSession(crypto);
   }, [crypto]);
   const isKsp = cryptoSession.kind === "ksp";
+  const [migrateBannerDismissed, setMigrateBannerDismissed] = useState(false);
+  const [migrateBusy, setMigrateBusy] = useState(false);
+  const [migrateError, setMigrateError] = useState<string | null>(null);
   const canSave =
     !isReader &&
     canSignKspWorkbook(cryptoSession) &&
@@ -155,6 +179,39 @@ export function Editor({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [formatEditor, setFormatEditor] = useState<TiptapEditor | null>(null);
+  const [noteAppearance, setNoteAppearance] = useState<NoteAppearance>(() =>
+    getStoredNoteAppearance(),
+  );
+  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() =>
+    resolveTheme(getStoredTheme()),
+  );
+  const noteColors = useMemo(
+    () => resolveNoteColors(noteAppearance, resolvedTheme),
+    [noteAppearance, resolvedTheme],
+  );
+  const noteSurfaceStyle = useMemo(() => noteColorsToCssVars(noteColors), [noteColors]);
+  const noteSurfaceFilled = noteColors.background !== "transparent";
+
+  useEffect(() => {
+    const syncTheme = () => setResolvedTheme(resolveTheme(getStoredTheme()));
+    syncTheme();
+    const unwatch = watchSystemTheme(syncTheme);
+    window.addEventListener("storage", syncTheme);
+    const onThemeToggle = () => syncTheme();
+    window.addEventListener("kodama-theme-change", onThemeToggle);
+    return () => {
+      unwatch();
+      window.removeEventListener("storage", syncTheme);
+      window.removeEventListener("kodama-theme-change", onThemeToggle);
+    };
+  }, []);
+
+  const changeNoteAppearance = useCallback((next: NoteAppearance) => {
+    setNoteAppearance(next);
+    setStoredNoteAppearance(next);
+  }, []);
+
   const initialSerialized = useMemo(() => serializeWorkbook(initialWorkbook), [initialWorkbook]);
   const lastSavedRef = useRef(initialSerialized);
   const [isDirty, setIsDirty] = useState(false);
@@ -164,6 +221,9 @@ export function Editor({
   const lockingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const richEditorRef = useRef<RichEditorHandle | null>(null);
+  const onEditorReady = useCallback((ed: TiptapEditor | null) => {
+    setFormatEditor(ed);
+  }, []);
   const editorSyncedRef = useRef(false);
   const workbookRef = useRef(workbook);
   workbookRef.current = workbook;
@@ -290,16 +350,7 @@ export function Editor({
     );
   }, []);
 
-  const autoLockMs = useMemo(() => {
-    const map: Record<AutoLockDuration, number | null> = {
-      "5m": 5 * 60 * 1000,
-      "15m": 15 * 60 * 1000,
-      "30m": 30 * 60 * 1000,
-      "1h": 60 * 60 * 1000,
-      never: null,
-    };
-    return map[autoLockDuration];
-  }, [autoLockDuration]);
+  const autoLockMs = useMemo(() => autoLockMsFor(autoLockDuration), [autoLockDuration]);
 
   const toggleMarkdownView = useCallback(() => {
     setMarkdownView((on) => {
@@ -435,6 +486,49 @@ export function Editor({
       }
     },
     [cryptoSession, canSave, flushWorkbook, isKsp, legacyEditToken, markSaved, slug],
+  );
+
+  const migrateToKsp = useCallback(
+    async (password: string) => {
+      if (!legacyEditToken || cryptoSession.kind !== "legacy") return;
+      setMigrateBusy(true);
+      setMigrateError(null);
+      try {
+        const payload = flushWorkbook();
+        const plaintext = serializeWorkbook(payload);
+        const result = await migrateLegacyPlaceToKsp({
+          slug,
+          password,
+          workbookPlaintext: plaintext,
+          legacyEditToken,
+        });
+        writeKspSecrets(slug, result.secrets);
+        clearLegacyEditToken(slug);
+        setLegacyEditToken(null);
+        setCryptoSession(
+          kspSessionFromSecrets({
+            slug,
+            secrets: result.secrets,
+            meta: result.kdf_params,
+          }),
+        );
+        workbookRef.current = payload;
+        setWorkbook(payload);
+        lastSavedRef.current = plaintext;
+        markClean();
+        setStatus("saved");
+        await queryClient.invalidateQueries({ queryKey: pageQueryKey(slug) });
+        toast.success("Upgraded to KSP — create new share links; old #read= links no longer work");
+        setMigrateBannerDismissed(true);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        setMigrateError(message);
+        toast.error(message);
+      } finally {
+        setMigrateBusy(false);
+      }
+    },
+    [cryptoSession.kind, flushWorkbook, legacyEditToken, markClean, queryClient, slug],
   );
 
   const prepareForLock = useCallback(async () => {
@@ -762,7 +856,7 @@ export function Editor({
           className="border-b border-border/60 bg-muted/30 px-4 py-2 text-center text-xs font-light text-muted-foreground"
           role="status"
         >
-          Read-only access — viewing is allowed; saving and editing require the owner password on this device.
+          Read-only — unlock with the place password on this device to edit or share.
         </div>
       )}
       <header
@@ -785,18 +879,18 @@ export function Editor({
           >
             <KodamaMark size={24} className={`${headerLogoMarkClass()} shrink-0`} />
             <span className={headerLogoTextClass()}>
-              <span className="hidden md:inline">Kodama Note</span>
+              <span className="hidden md:inline">Kodama</span>
               <span className="text-muted-foreground">/{slug}</span>
             </span>
           </Link>
 
           {/* Mobile: status + quick save + menu */}
           <div className="flex shrink-0 items-center gap-1 md:hidden">
-            {canSave && saveMode === "manual" && (
+            {canSave && saveMode === "manual" && isDirty && (
               <button
                 type="button"
                 onClick={() => void save()}
-                disabled={status === "saving" || !isDirty}
+                disabled={status === "saving"}
                 className="note-toolbar-btn !h-9 !w-9 !px-0 !text-primary disabled:opacity-40"
                 aria-label="Save"
                 title="Save"
@@ -821,48 +915,36 @@ export function Editor({
             </button>
           </div>
 
-          {/* Desktop toolbar */}
+          {/* Desktop toolbar — status, share, find, lock, more */}
           <div className="hidden items-center gap-1.5 md:flex">
             {canSave && (
               <>
-                {saveMode === "manual" && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void save()}
-                      disabled={status === "saving" || !isDirty}
-                      className="note-toolbar-btn !text-primary disabled:opacity-50"
-                      title="Save workbook (⌘S)"
-                    >
-                      <Save className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">Save</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleReload}
-                      disabled={status === "saving"}
-                      className="note-toolbar-btn"
-                      title="Reload last saved version"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">Reload</span>
-                    </button>
-                  </>
+                {saveMode === "manual" && isDirty && (
+                  <button
+                    type="button"
+                    onClick={() => void save()}
+                    disabled={status === "saving"}
+                    className="note-toolbar-btn !text-primary disabled:opacity-50"
+                    title="Save workbook (⌘S)"
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Save</span>
+                  </button>
                 )}
-                <StatusPill status={status} isDirty={isDirty} />
                 <div className="relative">
                   <button
                     type="button"
-                    onClick={() => setSaveModeOpen((v) => !v)}
-                    className="note-toolbar-btn"
+                    onClick={() => {
+                      setShareOpen(false);
+                      setMoreMenuOpen(false);
+                      setSaveModeOpen((v) => !v);
+                    }}
+                    className="rounded-full"
                     aria-haspopup="menu"
                     aria-expanded={saveModeOpen}
-                    title="Save mode"
+                    title={`Save status · ${saveMode === "auto" ? "Auto-save" : "Manual"}`}
                   >
-                    <Save className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">
-                      {saveMode === "auto" ? "Auto-save" : "Manual"}
-                    </span>
+                    <StatusPill status={status} isDirty={isDirty} />
                   </button>
                   {saveModeOpen && (
                     <>
@@ -873,8 +955,11 @@ export function Editor({
                       />
                       <div
                         role="menu"
-                        className="absolute right-0 z-40 mt-1.5 w-52 overflow-hidden rounded-xl border border-border/80 bg-card/95 p-1 shadow-card backdrop-blur-md"
+                        className="absolute right-0 z-40 mt-1.5 w-56 overflow-hidden rounded-xl border border-border/80 bg-card/95 p-1 shadow-card backdrop-blur-md"
                       >
+                        <p className="px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                          Save mode
+                        </p>
                         <button
                           type="button"
                           role="menuitemradio"
@@ -904,20 +989,40 @@ export function Editor({
                           <span className="flex-1">
                             <span className="block font-medium text-foreground">Manual save</span>
                             <span className="block text-[11px] text-muted-foreground">
-                              Save all sheets when you choose
+                              Save when you choose (⌘S)
                             </span>
                           </span>
                           {saveMode === "manual" && (
                             <Check className="mt-0.5 h-3 w-3 text-primary" />
                           )}
                         </button>
+                        {saveMode === "manual" && (
+                          <>
+                            <div className="my-1 border-t border-border/60" role="separator" />
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setSaveModeOpen(false);
+                                handleReload();
+                              }}
+                              disabled={status === "saving"}
+                              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light text-foreground transition-colors hover:bg-primary/5 disabled:opacity-50"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              Reload last saved
+                            </button>
+                          </>
+                        )}
                       </div>
                     </>
                   )}
                 </div>
               </>
             )}
-            <ExpiryPill burnMode={burnMode} expiresAt={expiresAt} />
+            {burnMode !== "never" && (
+              <ExpiryPill burnMode={burnMode} expiresAt={expiresAt} />
+            )}
             <div className="relative">
               <button
                 type="button"
@@ -929,7 +1034,7 @@ export function Editor({
                 className="note-toolbar-btn"
                 aria-haspopup="menu"
                 aria-expanded={shareOpen}
-                title="Sharing links"
+                title="Share"
               >
                 <Copy className="h-3.5 w-3.5" />
                 <span className="hidden lg:inline">Share</span>
@@ -1058,6 +1163,8 @@ export function Editor({
               burnMode={burnMode}
               expirySaving={expirySaving}
               autoLockDuration={autoLockDuration}
+              saveMode={saveMode}
+              canReload={canSave && saveMode === "manual"}
               slug={slug}
               workbook={workbook}
               activeSheetTitle={
@@ -1071,6 +1178,10 @@ export function Editor({
               onToggleMarkdownView={toggleMarkdownView}
               onChangeExpiry={changeExpiry}
               onChangeAutoLockDuration={changeAutoLockDuration}
+              onChangeSaveMode={changeSaveMode}
+              onReload={handleReload}
+              noteAppearance={noteAppearance}
+              onChangeNoteAppearance={changeNoteAppearance}
               onLockNow={onLock ? () => void handleLockNow("manual") : undefined}
               onOpenChange={setMoreMenuOpen}
             />
@@ -1104,6 +1215,8 @@ export function Editor({
           onSave={() => void save()}
           onReload={handleReload}
           onChangeSaveMode={changeSaveMode}
+          noteAppearance={noteAppearance}
+          onChangeNoteAppearance={changeNoteAppearance}
           onToggleFind={() => {
             setFindMode("find");
             setFindOpen((v) => !v);
@@ -1148,6 +1261,19 @@ export function Editor({
             )}
           </div>
         )}
+
+        {!migrateBannerDismissed && (
+          <MigrateToKspBanner
+            isLegacy={cryptoSession.kind === "legacy"}
+            isReader={isReader}
+            hasEditToken={!!legacyEditToken}
+            hasAttachments={workbookUsesAttachments(workbook)}
+            busy={migrateBusy}
+            error={migrateError}
+            onMigrate={migrateToKsp}
+            onDismiss={() => setMigrateBannerDismissed(true)}
+          />
+        )}
       </header>
 
       <main className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 overflow-hidden px-4 py-4 sm:px-6 sm:py-6 lg:px-10">
@@ -1169,9 +1295,18 @@ export function Editor({
             onDelete={(id) => void handleDeleteSheet(id)}
             onReorder={handleReorderSheets}
           />
+          {canEdit && !markdownView && !focus && (
+            <EditorFormatToolbar
+              editor={formatEditor}
+              onOpenLink={() => richEditorRef.current?.openLinkDialog()}
+              onInsertImage={(file) => void richEditorRef.current?.insertImageFromFile(file)}
+            />
+          )}
           <div
             data-editor-scroll="true"
+            data-note-surface={noteSurfaceFilled ? "filled" : "default"}
             className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1"
+            style={noteSurfaceStyle as CSSProperties}
           >
             {markdownView ? (
               <MarkdownView
@@ -1197,6 +1332,7 @@ export function Editor({
                 sheetAttachmentCount={activeAttachmentIds.size}
                 onAttachmentAdded={handleAttachmentAdded}
                 focusMode={focus}
+                onEditorReady={onEditorReady}
               />
 
               {!focus && (

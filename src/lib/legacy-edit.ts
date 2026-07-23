@@ -9,3 +9,13 @@ export function readLegacyEditToken(slug: string): string | null {
     return null;
   }
 }
+
+/** Remove the legacy edit token after a successful migrate to KSP. */
+export function clearLegacyEditToken(slug: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(LEGACY_EDIT_KEY(slug));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}

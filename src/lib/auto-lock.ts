@@ -36,8 +36,12 @@ export function getAutoLockDuration(): AutoLockDuration {
   }
 }
 
+export function autoLockMsFor(duration: AutoLockDuration): number | null {
+  return DURATION_MS[duration];
+}
+
 export function getAutoLockMs(): number | null {
-  return DURATION_MS[getAutoLockDuration()];
+  return autoLockMsFor(getAutoLockDuration());
 }
 
 export function setAutoLockDuration(duration: AutoLockDuration): void {

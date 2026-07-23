@@ -10,9 +10,7 @@ import {
   type KspPlaceMeta,
 } from "@/lib/ksp-place";
 import type { KspSecrets } from "@/lib/ksp-secrets";
-import { serializeKspWire, parseKspWire } from "@/lib/ksp-wire";
-import { decryptKspWorkbook } from "@/lib/ksp-place";
-import type { ExistingPage } from "@/lib/page-query";
+import { serializeKspWire } from "@/lib/ksp-wire";
 
 /** Unified crypto session for legacy Argon2id pages and KSP-capability pages. */
 export type PlaceCryptoSession =
@@ -157,41 +155,6 @@ export async function decryptPlaceBytes(
     version: session.version,
     productType: session.productType,
   });
-}
-
-/** Decrypt stored page/version ciphertext (handles KSP wire envelopes and version snapshots). */
-export async function decryptStoredPageCiphertext(
-  session: PlaceCryptoSession,
-  storedCiphertext: string,
-  iv: string,
-  page?: Pick<ExistingPage, "slug" | "salt" | "kdf_params">,
-): Promise<string> {
-  const wire = parseKspWire(storedCiphertext);
-  if (wire && session.kind === "ksp" && page) {
-    return decryptKspWorkbook({
-      page: {
-        slug: page.slug,
-        ciphertext: storedCiphertext,
-        iv,
-        salt: page.salt,
-        kdf_params: page.kdf_params,
-      } as ExistingPage,
-      readKey: session.readKey,
-    });
-  }
-
-  if (wire?.legacy && session.kind === "ksp") {
-    return decryptKspText({
-      slug: session.slug,
-      ciphertextB64: wire.legacy.ciphertext,
-      iv: wire.legacy.iv,
-      readKey: session.readKey,
-      version: wire.version,
-      productType: session.productType,
-    });
-  }
-
-  return decryptPlaceText(session, storedCiphertext, iv);
 }
 
 export function canSignKspWorkbook(session: PlaceCryptoSession): boolean {

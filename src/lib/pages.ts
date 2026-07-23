@@ -6,7 +6,6 @@
 // - The backend stores ciphertext and public keys only.
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeKdfParams } from "@/lib/crypto";
-import { VERSIONING_ENABLED } from "@/lib/features";
 import { isKspPlaceMeta, type KspPlaceMeta } from "@/lib/ksp-place";
 import { parseKspWire, primaryIvFromWire } from "@/lib/ksp-wire";
 import { assertNoSecretsInPayload } from "@/lib/server-payload";
@@ -115,20 +114,12 @@ export type PageRow = {
 
 export type GetPageResult = { exists: false } | ({ exists: true } & PageRow);
 
-export type VersionRow = { id: string; ciphertext: string; iv: string; created_at: string };
-
 export async function getPage(slug: string): Promise<GetPageResult> {
   const { data, error } = await rpc("kodama_read_page", { p_slug: slug });
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) return { exists: false };
   return hydratePageRow(row);
-}
-
-/** Lightweight availability probe for the landing-page slug field. */
-export async function isSlugAvailable(slug: string): Promise<boolean> {
-  const result = await getPage(slug);
-  return !result.exists;
 }
 
 function parseJsonField(raw: unknown): unknown {
@@ -194,6 +185,12 @@ export type CreatePageResult =
 
 export async function createPage(input: CreatePageInput): Promise<CreatePageResult> {
   if (isKspPlaceMeta(input.kdf_params)) {
+    if (
+      !Array.isArray(input.kdf_params.editor_public_keys) ||
+      input.kdf_params.editor_public_keys.length < 1
+    ) {
+      throw new Error("editor_public_keys required");
+    }
     try {
       const result = await invokeKspFunction<CreatePageResult>("ksp-create-page", {
         slug: input.slug,
@@ -221,8 +218,37 @@ export async function createPage(input: CreatePageInput): Promise<CreatePageResu
   return createPageViaRpc(input);
 }
 
-/** @deprecated Legacy pre-KSP pages only. */
-export async function appendVersionLegacy(args: {
+/** Replace a legacy page ciphertext/salt/iv/kdf_params with a verified KSP create payload. */
+export async function migratePageToKsp(input: {
+  slug: string;
+  edit_token: string;
+  ciphertext: string;
+  salt: string;
+  iv: string;
+  kdf_params: KspPlaceMeta;
+}): Promise<{ ok: true }> {
+  if (
+    !Array.isArray(input.kdf_params.editor_public_keys) ||
+    input.kdf_params.editor_public_keys.length < 1
+  ) {
+    throw new Error("editor_public_keys required");
+  }
+  const result = await invokeKspFunction<{ ok?: boolean }>("ksp-migrate-page", {
+    slug: input.slug,
+    edit_token: input.edit_token,
+    ciphertext: input.ciphertext,
+    salt: input.salt,
+    iv: input.iv,
+    kdf_params: input.kdf_params,
+  });
+  if (!result?.ok) {
+    throw new Error("Failed to migrate page to KSP");
+  }
+  return { ok: true };
+}
+
+/** Legacy pre-KSP pages only. */
+async function appendVersionLegacy(args: {
   slug: string;
   legacyEditToken: string;
   ciphertext: string;
@@ -238,7 +264,7 @@ export async function appendVersionLegacy(args: {
   return data as { id: string; created_at: string };
 }
 
-export async function appendKspVersion(args: {
+async function appendKspVersion(args: {
   slug: string;
   ciphertext: string;
   iv: string;
@@ -317,12 +343,6 @@ export async function updateExpiry(args: {
     burn_mode: row.burn_mode as BurnMode,
     expires_at: row.expires_at,
   };
-}
-export async function listVersions(slug: string): Promise<VersionRow[]> {
-  if (!VERSIONING_ENABLED) return [];
-  const { data, error } = await rpc("kodama_list_versions", { p_slug: slug });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as VersionRow[];
 }
 
 export type AttachmentRow = {

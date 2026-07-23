@@ -57,10 +57,6 @@ function getSubtleCrypto(): SubtleCrypto {
   return subtle;
 }
 
-export function isWebCryptoAvailable(): boolean {
-  return globalThis.crypto?.subtle != null;
-}
-
 /** Map unlock failures to a user-facing message (decrypt errors ≠ always wrong password). */
 export function unlockErrorMessage(err: unknown): string {
   if (err instanceof Error) {

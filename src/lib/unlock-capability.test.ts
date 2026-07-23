@@ -21,8 +21,8 @@ describe("unlock-capability", () => {
   });
 
   it("describes each capability", () => {
-    expect(lockedBadgeLabel("editor")).toContain("editable");
-    expect(lockedDescription("reader")).toContain("read-only");
+    expect(lockedBadgeLabel("editor")).toContain("edit");
+    expect(lockedDescription("reader")).toMatch(/reading|read/i);
     expect(lockedDescription("owner")).toContain("password");
   });
 });
