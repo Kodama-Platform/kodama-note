@@ -41,4 +41,12 @@ yarn dev
 yarn test
 ```
 
+Shared live Markdown editor (floating toolbar) lives in [`packages/kodama-editor`](packages/kodama-editor) as `@kodama.page/editor`. Standalone playground:
+
+```bash
+yarn dev:editor
+```
+
+Opens at `http://127.0.0.1:5180/`.
+
 Link local KSC packages via `file:../kodama-security-core/packages/...` in `package.json` (Vite/Vitest also alias to package sources).

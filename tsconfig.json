@@ -22,7 +22,9 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@kodama.page/editor": ["./packages/kodama-editor/src/index.ts"],
+      "@kodama.page/editor/*": ["./packages/kodama-editor/src/*"]
     }
   }
 }

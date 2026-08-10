@@ -11,6 +11,7 @@ import { devTlsOptions } from "./scripts/dev-tls.ts";
 const tls = devTlsOptions();
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 const kscRoot = path.resolve(repoRoot, "../kodama-security-core/packages");
+const editorSrc = path.resolve(repoRoot, "packages/kodama-editor/src");
 const useLocalKsc = fs.existsSync(path.join(kscRoot, "core/src/index.ts"));
 // Keep Vite's optimize-deps cache off Dropbox — sync/locks cause empty deps + 504s.
 const viteCacheDir = path.join(
@@ -23,15 +24,19 @@ export default defineConfig({
   cacheDir: viteCacheDir,
   resolve: {
     tsconfigPaths: true,
-    alias: useLocalKsc
-      ? {
-          "@kodama.page/core": path.join(kscRoot, "core/src/index.ts"),
-          "@kodama.page/security-browser": path.join(
-            kscRoot,
-            "security-browser/src/index.ts",
-          ),
-        }
-      : {},
+    alias: {
+      "@kodama.page/editor": path.join(editorSrc, "index.ts"),
+      "@kodama.page/editor/styles.css": path.join(editorSrc, "styles.css"),
+      ...(useLocalKsc
+        ? {
+            "@kodama.page/core": path.join(kscRoot, "core/src/index.ts"),
+            "@kodama.page/security-browser": path.join(
+              kscRoot,
+              "security-browser/src/index.ts",
+            ),
+          }
+        : {}),
+    },
   },
   plugins: [
     TanStackRouterVite({

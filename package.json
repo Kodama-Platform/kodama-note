@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/generate-dev-cert.mjs && vite dev",
+    "dev:editor": "vite --config examples/editor/vite.config.ts",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "node scripts/generate-dev-cert.mjs && vite preview",
