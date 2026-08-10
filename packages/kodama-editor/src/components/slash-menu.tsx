@@ -15,6 +15,8 @@ import {
   Table,
 } from "lucide-react";
 
+import { useEditorThemeStyle } from "../theme-context";
+
 type SlashItem = {
   id: string;
   label: string;
@@ -125,6 +127,7 @@ export function EditorSlashMenu({
   editor: Editor | null;
   disabled?: boolean;
 }) {
+  const themeStyle = useEditorThemeStyle();
   const [state, setState] = useState<SlashState | null>(null);
   const [active, setActive] = useState(0);
 
@@ -211,7 +214,7 @@ export function EditorSlashMenu({
     <div
       data-editor-slash-menu="true"
       className="editor-slash-menu"
-      style={{ top: state.top, left: state.left }}
+      style={{ top: state.top, left: state.left, ...themeStyle }}
       role="listbox"
       aria-label="Insert commands"
     >
@@ -253,6 +256,7 @@ export function EditorBlockInsertButton({
   editor: Editor | null;
   disabled?: boolean;
 }) {
+  const themeStyle = useEditorThemeStyle();
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -303,7 +307,7 @@ export function EditorBlockInsertButton({
         <div
           data-editor-block-insert-menu="true"
           className="editor-slash-menu editor-slash-menu--block-insert"
-          style={{ top: pos.top + 28, left: pos.left }}
+          style={{ top: pos.top + 28, left: pos.left, ...themeStyle }}
           role="menu"
           aria-label="Insert block"
         >
@@ -334,7 +338,7 @@ export function EditorBlockInsertButton({
       <div
         data-editor-block-insert="true"
         className="editor-block-insert"
-        style={{ top: pos.top, left: pos.left }}
+        style={{ top: pos.top, left: pos.left, ...themeStyle }}
       >
         <button
           type="button"

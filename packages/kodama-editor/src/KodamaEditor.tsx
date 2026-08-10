@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -59,6 +60,8 @@ import {
   replaceTextMatch,
   selectTextMatch,
 } from "./lib/editor-find";
+import { EditorThemeStyleProvider } from "./theme-context";
+import { themeRootClassName, themeToCssVars } from "./theme";
 import type { KodamaEditorHandle, KodamaEditorProps } from "./types";
 
 function shouldParsePasteAsMarkdown(text: string): boolean {
@@ -142,8 +145,11 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
       placeholder = "Start writing…",
       toolbar = "floating",
       slashMenu = true,
+      theme,
       media,
       className,
+      rootClassName,
+      style,
       onReady,
       onEditorReady,
       onActiveHeadingChange,
@@ -154,6 +160,8 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
     const emitChange = onChange ?? onMarkdownChange;
     const emitReady = onReady ?? onEditorReady;
     const editable = editableProp;
+    const themeStyle = useMemo(() => themeToCssVars(theme), [theme]);
+    const rootClass = themeRootClassName(theme, rootClassName);
     const lastEmitted = useRef(seed);
     const skipUpdate = useRef(false);
     const baselineSet = useRef(false);
@@ -514,46 +522,53 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
     const showChrome = editable && toolbar !== "none";
 
     return (
-      <>
-        <EditorContent editor={editor} />
-        {showChrome ? (
-          <>
-            {toolbar !== "none" ? (
-              <EditorFormatToolbar
-                editor={editor}
-                placement={toolbar === "static" ? "static" : "floating"}
-                onOpenLink={() => {
-                  const { from, to } = editor.state.selection;
-                  const selectedText = editor.state.doc.textBetween(from, to, " ");
-                  setLinkInsert({
-                    selectedText,
-                    url: editor.getAttributes("link").href ?? "",
-                  });
-                }}
-              />
-            ) : null}
-            {slashMenu ? (
-              <>
-                <EditorSlashMenu editor={editor} />
-                <EditorBlockInsertButton editor={editor} />
-              </>
-            ) : null}
-          </>
-        ) : null}
-        <ExternalLinkWarning
-          open={linkWarning !== null}
-          assessment={linkWarning}
-          onConfirm={confirmExternalLink}
-          onCancel={() => setLinkWarning(null)}
-        />
-        <LinkInsertDialog
-          open={linkInsert !== null}
-          selectedText={linkInsert?.selectedText ?? ""}
-          initialUrl={linkInsert?.url ?? ""}
-          onSubmit={applyLinkInsert}
-          onCancel={() => setLinkInsert(null)}
-        />
-      </>
+      <EditorThemeStyleProvider value={themeStyle}>
+        <div
+          data-kodama-editor="true"
+          data-editor-scroll="true"
+          className={rootClass}
+          style={{ ...themeStyle, ...style }}
+        >
+          <EditorContent editor={editor} />
+          {showChrome ? (
+            <>
+              {toolbar !== "none" ? (
+                <EditorFormatToolbar
+                  editor={editor}
+                  placement={toolbar === "static" ? "static" : "floating"}
+                  onOpenLink={() => {
+                    const { from, to } = editor.state.selection;
+                    const selectedText = editor.state.doc.textBetween(from, to, " ");
+                    setLinkInsert({
+                      selectedText,
+                      url: editor.getAttributes("link").href ?? "",
+                    });
+                  }}
+                />
+              ) : null}
+              {slashMenu ? (
+                <>
+                  <EditorSlashMenu editor={editor} />
+                  <EditorBlockInsertButton editor={editor} />
+                </>
+              ) : null}
+            </>
+          ) : null}
+          <ExternalLinkWarning
+            open={linkWarning !== null}
+            assessment={linkWarning}
+            onConfirm={confirmExternalLink}
+            onCancel={() => setLinkWarning(null)}
+          />
+          <LinkInsertDialog
+            open={linkInsert !== null}
+            selectedText={linkInsert?.selectedText ?? ""}
+            initialUrl={linkInsert?.url ?? ""}
+            onSubmit={applyLinkInsert}
+            onCancel={() => setLinkInsert(null)}
+          />
+        </div>
+      </EditorThemeStyleProvider>
     );
   },
 );

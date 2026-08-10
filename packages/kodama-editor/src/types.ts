@@ -1,6 +1,8 @@
+import type { CSSProperties } from "react";
 import type { AnyExtension, Editor } from "@tiptap/core";
 
 import type { EditorHeading } from "./lib/editor-headings";
+import type { KodamaEditorTheme } from "./theme";
 
 /** Resolve a markdown image `src` to a displayable URL (blob:, https:, …). */
 export type MediaResolveSrc = (src: string) => Promise<string | null> | string | null;
@@ -45,9 +47,17 @@ export type KodamaEditorProps = {
   readonly placeholder?: string;
   readonly toolbar?: KodamaEditorToolbar;
   readonly slashMenu?: boolean;
+  /**
+   * Visual theme tokens (fonts, colors, light/dark).
+   * Applied as scoped CSS variables — products can restyle without forking.
+   */
+  readonly theme?: KodamaEditorTheme;
   /** Product media adapter (attachments, encrypted blobs, …). */
   readonly media?: KodamaMediaAdapter;
   readonly className?: string;
+  /** Extra class names on the themed editor root wrapper. */
+  readonly rootClassName?: string;
+  readonly style?: CSSProperties;
   readonly onReady?: (editor: Editor | null) => void;
   /** @deprecated Prefer `onReady`. */
   readonly onEditorReady?: (editor: Editor | null) => void;
@@ -57,3 +67,4 @@ export type KodamaEditorProps = {
 };
 
 export type { EditorHeading };
+export type { KodamaEditorTheme } from "./theme";

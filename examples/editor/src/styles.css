@@ -36,6 +36,41 @@ body {
   padding: 1.5rem 1.25rem 3rem;
 }
 
+.playground--dark {
+  color: #c4bdb0;
+  background:
+    radial-gradient(90% 60% at 50% -10%, rgb(143 179 137 / 0.12), transparent 55%),
+    #141614;
+}
+
+.playground--dark .playground-header {
+  border-bottom-color: rgb(90 96 90 / 0.65);
+}
+
+.playground--dark .eyebrow,
+.playground--dark .lede,
+.playground--dark .playground-footer {
+  color: #8a8478;
+}
+
+.playground--dark .controls select,
+.playground--dark .controls button {
+  background: #242824;
+  border-color: #5a605a;
+  color: #c4bdb0;
+}
+
+.playground--dark .playground-main {
+  border-color: rgb(90 96 90 / 0.55);
+  background: transparent;
+  box-shadow: none;
+}
+
+.playground--dark .playground-source {
+  background: rgb(36 40 36 / 0.8);
+  border-color: rgb(90 96 90 / 0.55);
+}
+
 .playground-header {
   display: flex;
   flex-wrap: wrap;

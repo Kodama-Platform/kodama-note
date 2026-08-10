@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 import { clearFormatting } from "../lib/clear-formatting";
+import { useEditorThemeStyle } from "../theme-context";
 
 type EditorFormatToolbarProps = {
   editor: Editor | null;
@@ -67,6 +68,7 @@ export function EditorFormatToolbar({
   onOpenLink,
   placement = "floating",
 }: EditorFormatToolbarProps) {
+  const themeStyle = useEditorThemeStyle();
   const [, setTick] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreOpenRef = useRef(moreOpen);
@@ -287,6 +289,7 @@ export function EditorFormatToolbar({
         className="editor-format-toolbar editor-format-toolbar--static"
         role="toolbar"
         aria-label="Text formatting"
+        style={themeStyle}
       >
         {controls}
       </div>
@@ -305,6 +308,7 @@ export function EditorFormatToolbar({
       className="editor-format-toolbar editor-format-toolbar--floating"
       role="toolbar"
       aria-label="Text formatting"
+      style={themeStyle}
     >
       {controls}
     </BubbleMenu>
