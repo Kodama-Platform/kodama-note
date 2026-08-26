@@ -9,7 +9,7 @@ export const KodamaMarkdownHtml = Extension.create({
     return {
       markdown: {
         parse: {
-          setup(markdownit: { use: (plugin: (md: unknown) => void) => void }) {
+          setup(markdownit: { use: (plugin: unknown) => void }) {
             markdownit.use(markdownItSafeBlocks);
           },
         },

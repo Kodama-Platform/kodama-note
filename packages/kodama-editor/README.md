@@ -4,6 +4,10 @@ Shared live Markdown editor (TipTap) with floating format toolbar and slash menu
 
 Used by Kodama Note, Public Post, Public Message, and other products.
 
+```bash
+npm install @kodama.page/editor
+```
+
 ```tsx
 import { KodamaEditor } from "@kodama.page/editor";
 import "@kodama.page/editor/styles.css";
@@ -49,6 +53,20 @@ Omitted fields inherit host CSS. Portal chrome (floating toolbar / slash) receiv
 
 ## Playground
 
+From the kodama-note repo:
+
 ```bash
 yarn dev:editor
 ```
+
+## Publish
+
+`0.1.0` is already on npm. Later versions use an npm access token (not Trusted Publishing):
+
+```bash
+cd packages/kodama-editor
+# bump version in package.json first
+npm publish --access public
+```
+
+Authenticate with `npm login` or `//registry.npmjs.org/:_authToken` in your user `.npmrc`. Do not commit tokens.

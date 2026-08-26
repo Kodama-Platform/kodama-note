@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Image from "@tiptap/extension-image";
+import Image, { type ImageOptions } from "@tiptap/extension-image";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 
@@ -58,14 +58,14 @@ function MediaImageView({ node, extension }: NodeViewProps) {
 }
 
 export function createMediaImageExtension(media?: KodamaMediaAdapter) {
-  return Image.extend({
+  return Image.extend<ImageOptions & { media?: KodamaMediaAdapter }>({
     addOptions() {
       return {
         ...this.parent?.(),
         media,
         inline: false,
         allowBase64: false,
-      };
+      } as ImageOptions & { media?: KodamaMediaAdapter };
     },
     addStorage() {
       return {

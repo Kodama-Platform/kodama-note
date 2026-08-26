@@ -532,8 +532,7 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
           <EditorContent editor={editor} />
           {showChrome ? (
             <>
-              {toolbar !== "none" ? (
-                <EditorFormatToolbar
+              <EditorFormatToolbar
                   editor={editor}
                   placement={toolbar === "static" ? "static" : "floating"}
                   onOpenLink={() => {
@@ -545,7 +544,6 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
                     });
                   }}
                 />
-              ) : null}
               {slashMenu ? (
                 <>
                   <EditorSlashMenu editor={editor} />
