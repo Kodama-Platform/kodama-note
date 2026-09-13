@@ -19,12 +19,6 @@ type BlockState = {
   line: number;
   parentType: string;
   push: (type: string, tag: string, nesting: number) => Token;
-  md: {
-    inline: {
-      parse: (src: string, env: unknown, tokens: Token[]) => void;
-    };
-  };
-  env: unknown;
 };
 
 const OPEN_RE =
@@ -94,8 +88,8 @@ export function markdownItSafeBlocks(md: {
     const inline = state.push("inline", "", 0);
     inline.content = content;
     inline.map = [startLine, startLine + 1];
+    // Leave children empty: markdown-it's core `inline` rule tokenizes them.
     inline.children = [];
-    state.md.inline.parse(content, state.env, inline.children);
 
     state.push(tag === "p" ? "paragraph_close" : "heading_close", tag, -1);
     state.line = startLine + 1;

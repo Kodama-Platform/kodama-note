@@ -373,6 +373,14 @@
   scroll-margin-top: 12px;
 }
 
+.tiptap b,
+.tiptap strong,
+.ProseMirror b,
+.ProseMirror strong {
+  font-weight: 600;
+  color: var(--ke-fg, rgb(var(--foreground)));
+}
+
 .tiptap p,
 .ProseMirror p {
   margin: 0;

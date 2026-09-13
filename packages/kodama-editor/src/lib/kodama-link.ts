@@ -3,11 +3,11 @@ import { InputRule, PasteRule } from "@tiptap/core";
 
 /** `[label](url)` or `[label](url "title")` at end of typed text. */
 export const markdownLinkInputRegex =
-  /\[([^\]]+)\]\(([^)\s]+)(?:\s+"((?:[^"\\]|\\.)*)")?\)$/;
+  /(?<!!)\[([^\]]+)\]\(([^)\s]+)(?:\s+"((?:[^"\\]|\\.)*)")?\)$/;
 
 /** Same pattern for pasted markdown links (global). */
 export const markdownLinkPasteRegex =
-  /\[([^\]]+)\]\(([^)\s]+)(?:\s+"((?:[^"\\]|\\.)*)")?\)/g;
+  /(?<!!)\[([^\]]+)\]\(([^)\s]+)(?:\s+"((?:[^"\\]|\\.)*)")?\)/g;
 
 export type KodamaLinkOptions = LinkOptions & {
   onLinkShortcut?: () => void;

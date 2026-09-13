@@ -1,38 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Editor } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import TextAlign from "@tiptap/extension-text-align";
-import { Markdown } from "tiptap-markdown";
-
-import { KodamaParagraph, KodamaHeading } from "@/lib/kodama-aligned-blocks";
-import { KodamaHighlight } from "@/lib/kodama-highlight";
-import { KodamaIndent } from "@/lib/kodama-indent";
-import { KodamaText } from "@/lib/kodama-html-passthrough";
-import { KodamaMarkdownHtml } from "@/lib/kodama-markdown-html";
-import { KodamaSubscript, KodamaSuperscript, KodamaUnderline } from "@/lib/kodama-marks";
+import { createKodamaExtensions } from "@kodama.page/editor";
 
 function createEditor(content: string) {
   return new Editor({
-    extensions: [
-      StarterKit.configure({
-        heading: false,
-        paragraph: false,
-        text: false,
-        underline: false,
-        link: false,
-      }),
-      KodamaText,
-      KodamaParagraph,
-      KodamaHeading.configure({ levels: [1, 2, 3] }),
-      KodamaUnderline,
-      KodamaSubscript,
-      KodamaSuperscript,
-      KodamaHighlight,
-      TextAlign.configure({ types: ["heading", "paragraph"], alignments: ["left", "center", "right"] }),
-      KodamaIndent,
-      KodamaMarkdownHtml,
-      Markdown.configure({ html: false, linkify: true, breaks: true }),
-    ],
+    extensions: createKodamaExtensions({ includeChrome: false }),
     content,
   });
 }
@@ -60,14 +32,15 @@ describe("raw HTML handling", () => {
     expect(editor.storage.markdown.getMarkdown()).toBe("a **b** *i* ~~s~~ ==m== `c` <u>u</u>");
   });
 
-  it("renders whitelisted block tags as real blocks", () => {
-    editor = createEditor('<h2 style="text-align: right">R</h2>');
+  it("renders whitelisted block tags as real blocks and parses inner markdown", () => {
+    editor = createEditor('<h2 style="text-align: right">**R**</h2>');
     const heading = editor.getJSON().content?.[0] as
-      | { type?: string; attrs?: { level?: number; textAlign?: string } }
+      | { type?: string; attrs?: { level?: number; textAlign?: string }; content?: Array<{ marks?: Array<{ type?: string }> }> }
       | undefined;
     expect(heading?.type).toBe("heading");
     expect(heading?.attrs?.level).toBe(2);
-    expect(editor.storage.markdown.getMarkdown()).toContain("R");
+    expect(heading?.content?.[0]?.marks?.some((m) => m.type === "bold")).toBe(true);
+    expect(editor.storage.markdown.getMarkdown()).toMatch(/\*\*R\*\*/);
   });
 
   it("keeps non-whitelisted HTML verbatim on export instead of escaping it", () => {

@@ -8,25 +8,14 @@ import {
   useState,
 } from "react";
 import { useEditor, EditorContent, generateJSON } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import TextAlign from "@tiptap/extension-text-align";
-import Typography from "@tiptap/extension-typography";
-import { Table, TableRow, TableCell, TableHeader } from "@tiptap/extension-table";
 import type { Editor } from "@tiptap/react";
-import { Markdown } from "tiptap-markdown";
 
 import { EditorFormatToolbar } from "./components/format-toolbar";
 import { EditorBlockInsertButton, EditorSlashMenu } from "./components/slash-menu";
 import { LinkInsertDialog } from "./components/link-insert-dialog";
 import { ExternalLinkWarning } from "./components/external-link-warning";
-import { createMediaImageExtension } from "./extensions/media-image";
-import { handleEditorTabKeydown, ListTabExtension } from "./lib/list-tab-extension";
-import {
-  KodamaBulletList,
-  KodamaTaskItem,
-  KodamaTaskList,
-} from "./lib/kodama-task-list";
+import { createKodamaExtensions } from "./create-extensions";
+import { handleEditorTabKeydown } from "./lib/list-tab-extension";
 import {
   markdownLikelyHasTaskLists,
   normalizeTaskListMarkdown,
@@ -36,16 +25,6 @@ import {
   openExternalLink,
   type LinkRiskAssessment,
 } from "./lib/link-safety";
-import { KodamaParagraph, KodamaHeading } from "./lib/kodama-aligned-blocks";
-import { KodamaHighlight } from "./lib/kodama-highlight";
-import { KodamaIndent } from "./lib/kodama-indent";
-import { KodamaLink } from "./lib/kodama-link";
-import { KodamaMarkdownHtml } from "./lib/kodama-markdown-html";
-import {
-  KodamaSubscript,
-  KodamaSuperscript,
-  KodamaUnderline,
-} from "./lib/kodama-marks";
 import {
   collectEditorHeadings,
   normalizeHeadingText,
@@ -227,53 +206,12 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
     }, [linkWarning]);
 
     const editor = useEditor({
-      extensions: [
-        StarterKit.configure({
-          heading: false,
-          paragraph: false,
-          underline: false,
-          link: false,
-          bulletList: false,
-          codeBlock: {
-            enableTabIndentation: true,
-            tabSize: 2,
-          },
-        }),
-        KodamaParagraph,
-        KodamaHeading.configure({ levels: [1, 2, 3] }),
-        KodamaBulletList,
-        KodamaTaskList,
-        KodamaTaskItem.configure({ nested: true }),
-        KodamaLink.configure({
-          onLinkShortcut: () => openLinkDialogRef.current(),
-        }),
-        KodamaUnderline,
-        KodamaSubscript,
-        KodamaSuperscript,
-        KodamaHighlight,
-        TextAlign.configure({
-          types: ["heading", "paragraph"],
-          alignments: ["left", "center", "right"],
-        }),
-        KodamaIndent,
-        KodamaMarkdownHtml,
-        Typography,
-        Table.configure({ resizable: false }),
-        TableRow,
-        TableHeader,
-        TableCell,
-        createMediaImageExtension(media),
-        Placeholder.configure({ placeholder }),
-        Markdown.configure({
-          html: false,
-          linkify: true,
-          transformPastedText: true,
-          transformCopiedText: true,
-          breaks: true,
-        }),
-        ListTabExtension,
-        ...(extraExtensions ?? []),
-      ],
+      extensions: createKodamaExtensions({
+        media,
+        placeholder,
+        onLinkShortcut: () => openLinkDialogRef.current(),
+        extraExtensions,
+      }),
       content: normalizeTaskListMarkdown(seed),
       editable,
       editorProps: {
