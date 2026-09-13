@@ -9,6 +9,7 @@ import {
 } from "@kodama.page/core";
 
 import { KNP_PROTOCOL, KNP_SUITE } from "./constants";
+import { toBufferSource } from "@/lib/crypto";
 
 export type StateHeader = {
   readonly protocol: typeof KNP_PROTOCOL;
@@ -55,7 +56,7 @@ function headerBody(h: Omit<StateHeader, "signatureB64">) {
 }
 
 async function sha256B64(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const digest = await crypto.subtle.digest("SHA-256", toBufferSource(bytes));
   return bytesToBase64(new Uint8Array(digest));
 }
 

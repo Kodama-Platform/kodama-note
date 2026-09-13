@@ -9,7 +9,7 @@ describe("workbook-flush", () => {
     const sheetId = workbook.primary_sheet_id;
     const editorRef = {
       current: { getMarkdown: () => "updated" },
-    };
+    } as unknown as Parameters<typeof flushActiveSheetMarkdown>[2];
     const flushed = flushActiveSheetMarkdown(workbook, sheetId, editorRef);
     expect(flushed.sheets[0].markdown).toBe("updated");
   });

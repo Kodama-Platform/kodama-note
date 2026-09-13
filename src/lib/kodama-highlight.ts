@@ -13,7 +13,7 @@ export const KodamaHighlight = Highlight.extend({
           expelEnclosingWhitespace: true,
         },
         parse: {
-          setup(markdownit: { use: (plugin: (md: unknown) => void) => void }) {
+          setup(markdownit: { use: (plugin: unknown) => void }) {
             markdownit.use(markdownItHighlight);
           },
         },

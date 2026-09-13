@@ -82,7 +82,9 @@ describe("RichEditor list Tab", () => {
   it("parses GFM task list markdown", () => {
     editor = createEditor("- [ ] todo\n- [x] done");
     expect(editor.getJSON().content?.[0]?.type).toBe("taskList");
-    const items = editor.getJSON().content?.[0]?.content ?? [];
+    const items = (editor.getJSON().content?.[0]?.content ?? []) as Array<{
+      attrs?: { checked?: boolean };
+    }>;
     expect(items[0]?.attrs?.checked).toBe(false);
     expect(items[1]?.attrs?.checked).toBe(true);
   });

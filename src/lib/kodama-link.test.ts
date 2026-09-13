@@ -20,7 +20,7 @@ function simulateTyping(editor: Editor, text: string) {
   for (const char of text) {
     const { from, to } = editor.state.selection;
     const handled = editor.view.someProp("handleTextInput", (handler) =>
-      handler(editor.view, from, to, char),
+      handler(editor.view, from, to, char, () => editor.state.tr),
     );
     if (!handled) {
       editor.view.dispatch(editor.state.tr.insertText(char, from, to));

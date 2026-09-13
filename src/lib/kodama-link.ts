@@ -1,15 +1,15 @@
-import Link, { isAllowedUri as defaultIsAllowedUri } from "@tiptap/extension-link";
+import Link, { isAllowedUri as defaultIsAllowedUri, type LinkOptions } from "@tiptap/extension-link";
 import { InputRule, PasteRule } from "@tiptap/core";
 
 /** `[label](url)` or `[label](url "title")` at end of typed text. */
 export const markdownLinkInputRegex =
-  /\[([^\]]+)\]\(([^)\s]+)(?:\s+"((?:[^"\\]|\\.)*)")?\)$/;
+  /(?<!!)\[([^\]]+)\]\(([^)\s]+)(?:\s+"((?:[^"\\]|\\.)*)")?\)$/;
 
 /** Same pattern for pasted markdown links (global). */
 export const markdownLinkPasteRegex =
-  /\[([^\]]+)\]\(([^)\s]+)(?:\s+"((?:[^"\\]|\\.)*)")?\)/g;
+  /(?<!!)\[([^\]]+)\]\(([^)\s]+)(?:\s+"((?:[^"\\]|\\.)*)")?\)/g;
 
-export type KodamaLinkOptions = {
+export type KodamaLinkOptions = LinkOptions & {
   onLinkShortcut?: () => void;
 };
 
@@ -61,7 +61,7 @@ export const KodamaLink = Link.extend<KodamaLinkOptions>({
         class: "kodama-editor-link",
         rel: "noopener noreferrer nofollow",
       },
-    };
+    } as KodamaLinkOptions;
   },
 
   addCommands() {
@@ -90,7 +90,7 @@ export const KodamaLink = Link.extend<KodamaLinkOptions>({
           if (
             !href ||
             !isAllowedUri(href, {
-              defaultValidate: (url) => !!defaultIsAllowedUri(url, protocols),
+              defaultValidate: (url: string) => !!defaultIsAllowedUri(url, protocols),
               protocols,
               defaultProtocol,
             })

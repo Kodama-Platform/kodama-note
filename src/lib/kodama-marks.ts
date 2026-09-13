@@ -13,7 +13,7 @@ function htmlMarkStorage(tag: string) {
         expelEnclosingWhitespace: true,
       },
       parse: {
-        setup(markdownit: { use: (plugin: (md: unknown) => void) => void }) {
+        setup(markdownit: { use: (plugin: unknown) => void }) {
           markdownit.use(markdownItHtmlMark(tag));
         },
       },

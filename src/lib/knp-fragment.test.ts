@@ -13,7 +13,7 @@ const wrapped = {
   suite: "KSC_V1" as const,
   nonce: new Uint8Array(12),
   ciphertext: new Uint8Array(32),
-};
+} as unknown as ReaderCapability["wrappedCek"];
 
 const reader: ReaderCapability = {
   v: 1,

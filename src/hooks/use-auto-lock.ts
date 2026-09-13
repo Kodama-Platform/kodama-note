@@ -14,7 +14,7 @@ export function useAutoLock({ enabled, durationMs, onInactive }: UseAutoLockOpti
 
   const resetTimer = useCallback(() => {
     if (!enabled || durationMs == null) return;
-    window.clearTimeout(timerRef.current);
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => {
       onInactiveRef.current();
     }, durationMs);

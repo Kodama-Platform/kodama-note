@@ -9,6 +9,7 @@ import {
 } from "@kodama.page/core";
 
 import { KNP_PROTOCOL, KNP_SUITE } from "./constants";
+import { toBufferSource } from "@/lib/crypto";
 
 export type EditorCertificate = {
   readonly noteId: string;
@@ -40,7 +41,7 @@ export type NotePolicyBundle = {
 
 async function sha256B64(security: SecurityProvider, bytes: Uint8Array): Promise<string> {
   // Use Web Crypto via subtle when available; security provider has no hash facet.
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const digest = await crypto.subtle.digest("SHA-256", toBufferSource(bytes));
   return bytesToBase64(new Uint8Array(digest));
 }
 

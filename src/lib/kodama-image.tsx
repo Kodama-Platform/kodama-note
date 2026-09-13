@@ -106,7 +106,7 @@ export function createKodamaImageExtension(resolverContext: ResolverContext) {
         resolverContext,
         inline: false,
         allowBase64: false,
-      };
+      } as unknown as ReturnType<NonNullable<typeof this.parent>>;
     },
     addStorage() {
       return {

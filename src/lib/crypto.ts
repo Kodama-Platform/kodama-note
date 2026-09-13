@@ -107,10 +107,22 @@ export async function deriveRawKeyBytes(
   return new Uint8Array(raw as ArrayLike<number>);
 }
 
+/**
+ * Copy bytes into a plain ArrayBuffer so Web Crypto accepts them.
+ * Uint8Array<ArrayBufferLike> is not assignable to BufferSource under
+ * TS 5.7+ typed-array generics, and the copy also detaches from any
+ * SharedArrayBuffer-backed view.
+ */
+export function toBufferSource(bytes: Uint8Array): ArrayBuffer {
+  const buf = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buf).set(bytes);
+  return buf;
+}
+
 export async function importAesKeyFromRaw(rawKey: Uint8Array): Promise<CryptoKey> {
   return getSubtleCrypto().importKey(
     "raw",
-    rawKey,
+    toBufferSource(rawKey),
     { name: "AES-GCM" },
     false,
     ["encrypt", "decrypt"],
@@ -132,9 +144,9 @@ export async function encrypt(
 ): Promise<{ ciphertext: string; iv: string }> {
   const iv = randomBytes(12);
   const ct = await getSubtleCrypto().encrypt(
-    { name: "AES-GCM", iv: iv as unknown as BufferSource },
+    { name: "AES-GCM", iv: toBufferSource(iv) },
     key,
-    enc.encode(plaintext) as unknown as BufferSource,
+    toBufferSource(enc.encode(plaintext)),
   );
   return { ciphertext: toB64(new Uint8Array(ct)), iv: toB64(iv) };
 }
@@ -145,9 +157,9 @@ export async function decrypt(
   ivB64: string,
 ): Promise<string> {
   const pt = await getSubtleCrypto().decrypt(
-    { name: "AES-GCM", iv: fromB64(ivB64) as unknown as BufferSource },
+    { name: "AES-GCM", iv: toBufferSource(fromB64(ivB64)) },
     key,
-    fromB64(ciphertextB64) as unknown as BufferSource,
+    toBufferSource(fromB64(ciphertextB64)),
   );
   return dec.decode(pt);
 }
@@ -158,9 +170,9 @@ export async function encryptBytes(
 ): Promise<{ ciphertext: Uint8Array; iv: string }> {
   const iv = randomBytes(12);
   const ct = await getSubtleCrypto().encrypt(
-    { name: "AES-GCM", iv: iv as unknown as BufferSource },
+    { name: "AES-GCM", iv: toBufferSource(iv) },
     key,
-    bytes as unknown as BufferSource,
+    toBufferSource(bytes),
   );
   return { ciphertext: new Uint8Array(ct), iv: toB64(iv) };
 }
@@ -171,9 +183,9 @@ export async function decryptBytes(
   ivB64: string,
 ): Promise<Uint8Array> {
   const pt = await getSubtleCrypto().decrypt(
-    { name: "AES-GCM", iv: fromB64(ivB64) as unknown as BufferSource },
+    { name: "AES-GCM", iv: toBufferSource(fromB64(ivB64)) },
     key,
-    ciphertext as unknown as BufferSource,
+    toBufferSource(ciphertext),
   );
   return new Uint8Array(pt);
 }

@@ -81,7 +81,7 @@ describe("scroll-to-heading", () => {
     stage.scrollTo = vi.fn(function (this: HTMLElement, opts: ScrollToOptions) {
       this.scrollTop = Number(opts.top ?? 0);
       headingTop = 80 + 12;
-    });
+    }) as unknown as HTMLElement["scrollTo"];
     Object.defineProperty(stage, "getBoundingClientRect", {
       value: () => ({ top: 80 }),
     });

@@ -84,7 +84,9 @@ export function selectTextMatch(editor: Editor, match: TextMatch) {
 }
 
 export function replaceTextMatch(editor: Editor, match: TextMatch, replacement: string) {
-  editor.chain().focus().insertText(replacement, match.from, match.to).run();
+  const tr = editor.state.tr.insertText(replacement, match.from, match.to);
+  editor.view.dispatch(tr);
+  editor.commands.focus();
 }
 
 export function replaceAllTextMatches(editor: Editor, query: string, replacement: string) {

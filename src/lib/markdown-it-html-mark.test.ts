@@ -6,9 +6,9 @@ import { markdownItHtmlMark } from "@/lib/markdown-it-html-mark";
 describe("markdownItHtmlMark", () => {
   it("parses <u>/<sub>/<sup> tags", () => {
     const md = markdownit({ html: false });
-    md.use(markdownItHtmlMark("u"));
-    md.use(markdownItHtmlMark("sub"));
-    md.use(markdownItHtmlMark("sup"));
+    md.use(markdownItHtmlMark("u") as never);
+    md.use(markdownItHtmlMark("sub") as never);
+    md.use(markdownItHtmlMark("sup") as never);
 
     expect(md.renderInline("a <u>under</u> b")).toBe("a <u>under</u> b");
     expect(md.renderInline("H<sub>2</sub>O")).toBe("H<sub>2</sub>O");

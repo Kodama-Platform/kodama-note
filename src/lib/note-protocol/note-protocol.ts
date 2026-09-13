@@ -57,6 +57,7 @@ import {
   type SignedState,
 } from "./state";
 import { encodeWrapAad, ownerCapabilityId } from "./wrap-aad";
+import { toBufferSource } from "@/lib/crypto";
 
 export type NoteRole = "owner" | "editor" | "reader";
 
@@ -106,7 +107,7 @@ export type EditorCapability = ReaderCapability & {
 };
 
 async function ownerIdFromPublicKey(pk: PublicKeyBytes): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", pk.bytes);
+  const digest = await crypto.subtle.digest("SHA-256", toBufferSource(pk.bytes));
   return bytesToBase64(new Uint8Array(digest));
 }
 

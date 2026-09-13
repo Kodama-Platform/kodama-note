@@ -1312,9 +1312,7 @@ export function Editor({
                           ? "Anyone with this link can decrypt and edit"
                           : isReader
                             ? "Unlock with your password to share edit access"
-                            : cryptoSession.kind === "plaintext"
-                              ? "Unlock with your password once to generate an editor link"
-                              : "Unlock with your password to generate an editor link"
+                            : "Unlock with your password to generate an editor link"
                       }
                     >
                       <span className="flex-1">
@@ -1340,9 +1338,7 @@ export function Editor({
                       title={
                         editorCapabilityExport
                           ? "Copy KSP editor capability JSON for secure sharing"
-                          : cryptoSession.kind === "plaintext"
-                            ? "Editor capability export requires a KSP place"
-                            : "Unlock with your password to export editor capability"
+                          : "Unlock with your password to export editor capability"
                       }
                     >
                       <span className="flex-1">
