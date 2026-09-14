@@ -8,6 +8,7 @@ const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 const kscRoot = path.resolve(repoRoot, "../kodama-security-core/packages");
 const editorSrc = path.resolve(repoRoot, "packages/kodama-editor/src");
 const useLocalKsc = fs.existsSync(path.join(kscRoot, "core/src/index.ts"));
+const appPkg = (name: string) => path.resolve(repoRoot, "node_modules", name);
 
 export default defineConfig({
   plugins: [react()],
@@ -29,6 +30,9 @@ export default defineConfig({
               kscRoot,
               "security-browser/src/index.ts",
             ),
+            "brotli-wasm": appPkg("brotli-wasm"),
+            "@noble/ed25519": appPkg("@noble/ed25519"),
+            "@noble/hashes": appPkg("@noble/hashes"),
           }
         : {}),
     },
