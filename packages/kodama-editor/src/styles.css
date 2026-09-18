@@ -593,7 +593,7 @@
 
 .tiptap blockquote,
 .ProseMirror blockquote {
-  margin: 0;
+  margin: 0 0 0.85em;
   padding-left: 1em;
   border-left: 2px solid var(--ke-border, rgb(var(--border) / 0.8));
   color: var(--ke-muted, rgb(var(--muted-foreground)));

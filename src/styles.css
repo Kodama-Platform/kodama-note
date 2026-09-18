@@ -3137,7 +3137,7 @@ html:not(.dark) .firefly {
 
 .tiptap blockquote,
 .ProseMirror blockquote {
-  margin: 0;
+  margin: 0 0 0.85em;
   padding-left: 1em;
   border-left: 2px solid rgb(var(--border) / 0.8);
   color: rgb(var(--muted-foreground));
