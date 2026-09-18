@@ -1,12 +1,8 @@
-import { getKodamaAccountToken } from "@/lib/kodama-account-session";
 import { NoteApiError, isMissingPlaceError, noteApiJson, noteResourceUrl } from "@/lib/note-api";
 import {
   defaultNoteEntitlement,
   defaultNotePaymentPublic,
-  normalizeNotePaymentOwner,
-  parseNoteEntitlement,
   parseNotePaymentOwner,
-  parseNotePaymentPublic,
   NOTE_PLACE_PAYMENT_SCHEMA,
   type NotePlaceEntitlement,
   type NotePlacePaymentOwner,
@@ -22,11 +18,6 @@ import {
 import { signPlaceDocument } from "@/lib/place-meta-sign";
 import type { NoteSession } from "@/lib/note-protocol";
 
-function ownerAuth(): { authorization?: string } {
-  const token = getKodamaAccountToken();
-  return token ? { authorization: `Bearer ${token}` } : {};
-}
-
 function settingsDocument(settings: NotePlaceSettings): Record<string, unknown> {
   const next = normalizeNotePlaceSettings(settings);
   return {
@@ -41,21 +32,6 @@ function settingsDocument(settings: NotePlaceSettings): Record<string, unknown> 
     letter_spacing: next.letter_spacing,
     paragraph_spacing: next.paragraph_spacing,
     view_width: next.view_width,
-  };
-}
-
-function paymentDocument(input: NotePlacePaymentOwner): Record<string, unknown> {
-  const next = normalizeNotePaymentOwner(input);
-  return {
-    schema: next.schema,
-    account_id: next.account_id,
-    access: next.access,
-    plan_override: next.plan_override,
-    pay_product_id: next.pay_product_id,
-    donate: {
-      visible: next.donate.visible,
-      ...(next.donate.destination ? { destination: next.donate.destination } : {}),
-    },
   };
 }
 
@@ -90,49 +66,27 @@ export async function putPlaceSettings(args: {
   return parseNotePlaceSettings(row) ?? normalizeNotePlaceSettings(args.settings);
 }
 
+/** v1 Gate has no /payment. Free access until /v1/pay ships. */
 export async function getPlacePayment(slug: string): Promise<NotePlacePaymentPublic> {
-  try {
-    const row = await noteApiJson<unknown>("GET", noteResourceUrl(slug, "payment"));
-    return parseNotePaymentPublic(row, slug) ?? defaultNotePaymentPublic(slug);
-  } catch (error) {
-    if (error instanceof NoteApiError && error.status === 404) {
-      return defaultNotePaymentPublic(slug);
-    }
-    throw error;
-  }
+  return defaultNotePaymentPublic(slug);
 }
 
+/** Local-only until place payment is a Gate route. */
 export async function putPlacePayment(args: {
   slug: string;
   payment: NotePlacePaymentOwner;
   session: NoteSession;
 }): Promise<NotePlacePaymentPublic> {
-  const document = paymentDocument(args.payment);
-  const signed = await signPlaceDocument({
-    session: args.session,
-    slug: args.slug,
-    purpose: NOTE_PLACE_PAYMENT_SCHEMA,
-    document,
-  });
-  const row = await noteApiJson<unknown>(
-    "PUT",
-    noteResourceUrl(args.slug, "payment"),
-    { ...document, ...signed },
-    ownerAuth(),
-  );
-  return parseNotePaymentPublic(row, args.slug) ?? defaultNotePaymentPublic(args.slug);
+  return {
+    ...defaultNotePaymentPublic(args.slug),
+    access: args.payment.access,
+    donate: args.payment.donate,
+  };
 }
 
+/** v1 Gate has no /entitlement. Every place is free. */
 export async function getPlaceEntitlement(slug: string): Promise<NotePlaceEntitlement> {
-  try {
-    const row = await noteApiJson<unknown>("GET", noteResourceUrl(slug, "entitlement"));
-    return parseNoteEntitlement(row, slug) ?? defaultNoteEntitlement(slug);
-  } catch (error) {
-    if (error instanceof NoteApiError && error.status === 404) {
-      return defaultNoteEntitlement(slug);
-    }
-    throw error;
-  }
+  return defaultNoteEntitlement(slug);
 }
 
 export function paymentOwnerFromPublic(

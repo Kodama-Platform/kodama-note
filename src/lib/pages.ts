@@ -78,7 +78,7 @@ function parseJsonField(raw: unknown): unknown {
 }
 
 function hydratePageRow(row: Record<string, unknown>): Extract<GetPageResult, { exists: true }> {
-  const rawKdf = parseJsonField(row.kdf_params);
+  const rawKdf = parseJsonField(row.kdf_params ?? row.private_kdf_params);
   const slug = String(row.slug ?? "");
   const publicView = parsePlacePublicView(row, slug);
   return {

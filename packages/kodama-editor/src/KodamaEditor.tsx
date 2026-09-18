@@ -46,6 +46,7 @@ import {
   imageAltFromFile,
   readImagesFromClipboardApi,
 } from "./lib/clipboard-images";
+import { getMountedEditorDom, posAtEditorCoords } from "./lib/editor-view";
 import { EditorThemeStyleProvider } from "./theme-context";
 import { themeRootClassName, themeToCssVars } from "./theme";
 import type { KodamaEditorHandle, KodamaEditorProps } from "./types";
@@ -213,6 +214,7 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
     onBaselineRef.current = onBaseline;
     mediaRef.current = media;
     const outlineJumpRef = useRef(false);
+    const rootElRef = useRef<HTMLDivElement | null>(null);
     const openLinkDialogRef = useRef<() => void>(() => {});
     const [linkWarning, setLinkWarning] = useState<LinkRiskAssessment | null>(null);
     const [linkInsert, setLinkInsert] = useState<{
@@ -272,6 +274,7 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
     }, [linkWarning]);
 
     const editor = useEditor({
+      immediatelyRender: false,
       extensions: createKodamaExtensions({
         media,
         placeholder,
@@ -396,8 +399,8 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
     }, [editor, emitReady]);
 
     useEffect(() => {
-      if (!editor) return;
-      const el = editor.view.dom;
+      const el = rootElRef.current;
+      if (!el || !editor) return;
       const onTab = (event: KeyboardEvent) => {
         handleEditorTabKeydown(event, editor);
       };
@@ -413,7 +416,7 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
         if (!clipboardLikelyHasImage(event.dataTransfer)) return;
         event.preventDefault();
         event.stopPropagation();
-        const pos = editor.view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+        const pos = posAtEditorCoords(editor, event.clientX, event.clientY);
         void pasteImagesFromClipboard(editor, event.dataTransfer, mediaRef.current, pos);
       };
       const onDragOver = (event: DragEvent) => {
@@ -574,7 +577,10 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
             });
           }
           if (headingPos === -1) {
-            const nodes = editor.view.dom.querySelectorAll("h1,h2,h3,h4,h5,h6");
+            const nodes = (getMountedEditorDom(editor) ?? rootElRef.current)?.querySelectorAll(
+              "h1,h2,h3,h4,h5,h6",
+            );
+            if (!nodes) return;
             for (const node of nodes) {
               if (!(node instanceof HTMLElement)) continue;
               if (normalizeHeadingText(node.textContent ?? "") !== needle) continue;
@@ -601,6 +607,7 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
     return (
       <EditorThemeStyleProvider value={themeStyle}>
         <div
+          ref={rootElRef}
           data-kodama-editor="true"
           data-editor-scroll="true"
           className={rootClass}

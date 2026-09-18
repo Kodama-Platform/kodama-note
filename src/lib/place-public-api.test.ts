@@ -9,25 +9,13 @@ describe("place-public-api", () => {
     vi.unstubAllEnvs();
   });
 
-  it("GETs settings, payment, and entitlement", async () => {
+  it("GETs settings from the Gate and uses local free payment defaults", async () => {
     vi.stubEnv("VITE_BACKEND_URL", "");
     vi.stubEnv("VITE_NOTE_API_URL", "");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/garden/settings")) {
         return new Response(JSON.stringify({ preset: "paper", font: "serif", font_size: 100 }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (url.endsWith("/garden/payment")) {
-        return new Response(JSON.stringify({ access: "free", bound: false }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (url.endsWith("/garden/entitlement")) {
-        return new Response(JSON.stringify({ plan: "pro", max_attachments_per_sheet: 50 }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -39,9 +27,10 @@ describe("place-public-api", () => {
     await expect(getPlaceSettings("garden")).resolves.toMatchObject({ preset: "paper" });
     await expect(getPlacePayment("garden")).resolves.toMatchObject({ access: "free", slug: "garden" });
     await expect(getPlaceEntitlement("garden")).resolves.toMatchObject({
-      plan: "pro",
-      max_attachments_per_sheet: 50,
+      plan: "free",
+      paid_unlock_required: false,
     });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`${DEFAULT_NOTE_API_URL}/garden/settings`);
   });
 

@@ -31,6 +31,8 @@ export type PublishProtectedNoteCommand = {
   readonly meta: KnpPlaceMeta;
   /** Note envelope bytes only. */
   readonly noteEnvelope: Uint8Array;
+  /** Ed25519 over CBOR { document, purpose: knp-place-create-1, slug }. */
+  readonly gateSignatureB64: string;
 };
 
 export type AppendProtectedNoteCommand = {
@@ -40,8 +42,12 @@ export type AppendProtectedNoteCommand = {
   readonly expectedVersion: number;
   readonly meta: KnpPlaceMeta;
   readonly noteEnvelope: Uint8Array;
+  readonly saltB64: string;
   readonly writerPublicKeyB64: string;
+  /** KNP state-header signature (inside kdf_params — not the Gate sig). */
   readonly stateSignatureB64: string;
+  /** Ed25519 over CBOR { document, purpose: knp-private-tabs-put-1, slug }. */
+  readonly gateSignatureB64: string;
 };
 
 export type PublishAttachmentCommand = {

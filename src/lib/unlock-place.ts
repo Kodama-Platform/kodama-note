@@ -20,9 +20,27 @@ export type UnlockedPlace = {
 
 export { unlockErrorMessage } from "@/lib/crypto-utils";
 
-function isKnpPage(page: ExistingPage): boolean {
-  const meta = page.kdf_params as { protocol?: string } | null;
-  return meta?.protocol === "knp-1";
+const NOT_KNP_MESSAGE = "This note is not KNP-1. Create a new note.";
+
+/**
+ * Public GET /{slug} is a place identity + public tabs. It must not include the
+ * private envelope, so `kdf_params.protocol` is often missing there.
+ * Only reject when the row explicitly names a different protocol.
+ */
+export function isKnpUnlockCandidate(page: ExistingPage): boolean {
+  const meta = page.kdf_params;
+  if (!meta || typeof meta !== "object") return true;
+  const protocol = (meta as { protocol?: unknown }).protocol;
+  if (typeof protocol !== "string" || protocol.length === 0) return true;
+  return protocol === "knp-1";
+}
+
+function rethrowUnlockError(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/not a KNP-1/i.test(message)) {
+    throw new Error(NOT_KNP_MESSAGE);
+  }
+  throw error;
 }
 
 export async function unlockPlace(args: {
@@ -31,62 +49,66 @@ export async function unlockPlace(args: {
   viaShareLink?: boolean;
 }): Promise<UnlockedPlace> {
   const { page, password } = args;
-  if (!isKnpPage(page)) {
-    throw new Error("This note is not KNP-1. Create a new note.");
+  if (!isKnpUnlockCandidate(page)) {
+    throw new Error(NOT_KNP_MESSAGE);
   }
 
-  const { note } = composeKodamaNoteApp();
+  try {
+    const { note } = composeKodamaNoteApp();
 
-  const editorFrag = getFragmentCapability("editor");
-  if (editorFrag) {
-    const cap = decodeEditorCapability(editorFrag);
-    if (!cap) throw new Error("Invalid editor capability");
-    const unlocked = await note.unlockWithEditorCapability({ slug: page.slug, capability: cap });
+    const editorFrag = getFragmentCapability("editor");
+    if (editorFrag) {
+      const cap = decodeEditorCapability(editorFrag);
+      if (!cap) throw new Error("Invalid editor capability");
+      const unlocked = await note.unlockWithEditorCapability({ slug: page.slug, capability: cap });
+      writeKnpSecrets(page.slug, {
+        readerCapability: encodeCapabilityFragment(cap),
+        editorCapability: encodeCapabilityFragment(cap),
+        isOwner: false,
+      });
+      return {
+        crypto: createKnpSession(unlocked.session),
+        plaintext: serializeWorkbook(mergePublicAndPrivate(page.public_tabs ?? [], unlocked.workbook)),
+        capability: resolveUnlockCapability({ hasEditorSecrets: true }),
+      };
+    }
+
+    const readFrag = getFragmentCapability("read");
+    if (readFrag) {
+      const cap = decodeReaderCapability(readFrag);
+      if (!cap) throw new Error("Invalid reader capability");
+      const unlocked = await note.unlockWithReaderCapability({ slug: page.slug, capability: cap });
+      writeKnpSecrets(page.slug, {
+        readerCapability: encodeCapabilityFragment(cap),
+        editorCapability: "",
+        isOwner: false,
+      });
+      return {
+        crypto: createKnpSession(unlocked.session),
+        plaintext: serializeWorkbook(mergePublicAndPrivate(page.public_tabs ?? [], unlocked.workbook)),
+        capability: resolveUnlockCapability({ hasReadCapability: true }),
+      };
+    }
+
+    if (!password) {
+      throw new Error("Password required");
+    }
+
+    const unlocked = await note.unlockWithPassword({ slug: page.slug, password });
+    const readerCap = await note.issueReaderCapability(unlocked.session);
     writeKnpSecrets(page.slug, {
-      readerCapability: encodeCapabilityFragment(cap),
-      editorCapability: encodeCapabilityFragment(cap),
-      isOwner: false,
+      readerCapability: encodeCapabilityFragment(readerCap),
+      editorCapability: "",
+      isOwner: true,
     });
     return {
       crypto: createKnpSession(unlocked.session),
       plaintext: serializeWorkbook(mergePublicAndPrivate(page.public_tabs ?? [], unlocked.workbook)),
       capability: resolveUnlockCapability({ hasEditorSecrets: true }),
     };
+  } catch (error) {
+    rethrowUnlockError(error);
   }
-
-  const readFrag = getFragmentCapability("read");
-  if (readFrag) {
-    const cap = decodeReaderCapability(readFrag);
-    if (!cap) throw new Error("Invalid reader capability");
-    const unlocked = await note.unlockWithReaderCapability({ slug: page.slug, capability: cap });
-    writeKnpSecrets(page.slug, {
-      readerCapability: encodeCapabilityFragment(cap),
-      editorCapability: "",
-      isOwner: false,
-    });
-    return {
-      crypto: createKnpSession(unlocked.session),
-      plaintext: serializeWorkbook(mergePublicAndPrivate(page.public_tabs ?? [], unlocked.workbook)),
-      capability: resolveUnlockCapability({ hasReadCapability: true }),
-    };
-  }
-
-  if (!password) {
-    throw new Error("Password required");
-  }
-
-  const unlocked = await note.unlockWithPassword({ slug: page.slug, password });
-  const readerCap = await note.issueReaderCapability(unlocked.session);
-  writeKnpSecrets(page.slug, {
-    readerCapability: encodeCapabilityFragment(readerCap),
-    editorCapability: "",
-    isOwner: true,
-  });
-  return {
-    crypto: createKnpSession(unlocked.session),
-    plaintext: serializeWorkbook(mergePublicAndPrivate(page.public_tabs ?? [], unlocked.workbook)),
-    capability: resolveUnlockCapability({ hasEditorSecrets: true }),
-  };
 }
 
 export async function unlockPlaceWithEditorImport(args: {

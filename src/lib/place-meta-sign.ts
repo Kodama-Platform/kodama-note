@@ -1,15 +1,16 @@
-import { bytesToBase64, encodeCbor } from "@kodama.page/core";
+import { bytesToBase64 } from "@kodama.page/core";
 
+import { encodePlaceSignMessage } from "@/lib/gate-sign";
 import type { NoteSession } from "@/lib/note-protocol";
 import { composeKodamaNoteApp } from "@/lib/security-bootstrap";
 
-/** Canonical message the Delivery Gate verifies on settings / payment PUTs. */
+/** Canonical message the Delivery Gate verifies (CBOR sorts keys). */
 export function placeDocumentSignPayload(
   slug: string,
   purpose: string,
   document: Record<string, unknown>,
 ): Record<string, unknown> {
-  return { purpose, slug, document };
+  return { document, purpose, slug };
 }
 
 export function canSignPlaceDocument(session: NoteSession | undefined): boolean {
@@ -32,9 +33,7 @@ export async function signPlaceDocument(input: {
     throw new Error("owner signing key required");
   }
   const { security } = composeKodamaNoteApp();
-  const message = encodeCbor(
-    placeDocumentSignPayload(input.slug, input.purpose, input.document),
-  );
+  const message = encodePlaceSignMessage(input.purpose, input.slug, input.document);
   const signature = await security.signatures.sign({
     privateKey: input.session.ownerSignKey,
     message,
@@ -57,9 +56,7 @@ export async function signPlaceWrite(input: {
     throw new Error("writer signing key required");
   }
   const { security } = composeKodamaNoteApp();
-  const message = encodeCbor(
-    placeDocumentSignPayload(input.slug, input.purpose, input.document),
-  );
+  const message = encodePlaceSignMessage(input.purpose, input.slug, input.document);
   const signature = await security.signatures.sign({
     privateKey,
     message,

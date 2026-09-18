@@ -21,6 +21,12 @@ import {
   clearBytes,
 } from "@kodama.page/core";
 
+import {
+  GATE_CREATE_PURPOSE,
+  GATE_PRIVATE_PUT_PURPOSE,
+  encodePlaceSignMessage,
+} from "@/lib/gate-sign";
+import { createPlaceDocument, savePrivateDocument } from "@/lib/note-gate-body";
 import type { WorkbookPayload } from "@/lib/workbook";
 import { createEmptyWorkbook } from "@/lib/workbook";
 
@@ -527,15 +533,29 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
         storage_mode: "knp-envelope",
       };
 
+      const saltB64 = bytesToBase64(protectedKey.salt);
+      const createDoc = createPlaceDocument({
+        slug: input.slug,
+        saltB64,
+        burnMode: input.burnMode,
+        meta,
+        noteEnvelope,
+      });
+      const gateSignature = await security.signatures.sign({
+        privateKey: ownerPair.privateKey,
+        message: encodePlaceSignMessage(GATE_CREATE_PURPOSE, input.slug, createDoc),
+      });
+
       await delivery.publishProtectedNote({
         kind: "note.publishProtected",
         slug: input.slug,
         placeId,
         objectId: noteId,
         burnMode: input.burnMode,
-        saltB64: bytesToBase64(protectedKey.salt),
+        saltB64,
         meta,
         noteEnvelope,
+        gateSignatureB64: bytesToBase64(gateSignature),
       });
 
       const checkpoint: NoteCheckpoint = {
@@ -739,6 +759,13 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
           ? session.ownerPublicKey
           : await security.keys.exportPublicKey(writerKey);
 
+      const saltB64 = bytesToBase64(session.protectedMasterKey.salt);
+      const privateDoc = savePrivateDocument({ noteEnvelope, saltB64, meta });
+      const gateSignature = await security.signatures.sign({
+        privateKey: writerKey,
+        message: encodePlaceSignMessage(GATE_PRIVATE_PUT_PURPOSE, session.slug, privateDoc),
+      });
+
       await delivery.appendProtectedNote({
         kind: "note.appendProtected",
         slug: session.slug,
@@ -746,8 +773,10 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
         expectedVersion: session.version,
         meta,
         noteEnvelope,
+        saltB64,
         writerPublicKeyB64: bytesToBase64(writerPub.bytes),
         stateSignatureB64: state.header.signatureB64,
+        gateSignatureB64: bytesToBase64(gateSignature),
       });
 
       const checkpoint: NoteCheckpoint = {

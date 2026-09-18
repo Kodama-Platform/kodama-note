@@ -106,4 +106,5 @@ Owner re-wraps keys in the browser, then `PUT /{slug}/private` (or `PUT /{slug}`
 | `POST /{slug}/decrypt` | Server must never see keys. |
 | Private tab titles on `GET /public` | Titles are sensitive. |
 | `/v1/pay` | Deferred. |
+| `/{slug}/payment` or `/{slug}/entitlement` | Deferred. v1 is free access. |
 | `/{slug}/files/…` | Use global `/v1/files`. |

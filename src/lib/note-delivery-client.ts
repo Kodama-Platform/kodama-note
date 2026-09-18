@@ -1,4 +1,4 @@
-import { base64ToBytes, bytesToBase64 } from "@kodama.page/core";
+import { base64ToBytes } from "@kodama.page/core";
 
 import type {
   AppendProtectedNoteCommand,
@@ -10,6 +10,7 @@ import type {
   UpdateExpiryCommand,
 } from "@/lib/note-protocol";
 import { NoteApiError, isMissingPlaceError, noteApiBaseUrl, noteApiJson, noteResourceUrl } from "@/lib/note-api";
+import { createPlaceDocument, savePrivateDocument } from "@/lib/note-gate-body";
 
 function isMeta(value: unknown): value is KnpPlaceMeta {
   return (
@@ -44,28 +45,49 @@ type NoteRow = {
   burn_mode?: string;
   expires_at?: string | null;
   updated_at?: string;
+  private?: NoteRow;
 };
 
-/** Delivery Gate create allowlist — extra keys return 422 unknown_field. */
-export function createPlaceRequestBody(command: PublishProtectedNoteCommand): Record<string, unknown> {
+function flattenNoteRow(row: NoteRow): NoteRow {
+  const nested = row.private;
   return {
-    slug: command.slug,
-    ciphertext: bytesToBase64(command.noteEnvelope),
-    salt: command.saltB64,
-    kdf_params: command.meta as unknown as Record<string, unknown>,
-    burn_mode: command.burnMode,
+    slug: row.slug ?? nested?.slug,
+    ciphertext: row.ciphertext ?? row.private_ciphertext ?? nested?.ciphertext ?? nested?.private_ciphertext,
+    salt: row.salt ?? row.private_salt ?? nested?.salt ?? nested?.private_salt,
+    kdf_params: row.kdf_params ?? row.private_kdf_params ?? nested?.kdf_params ?? nested?.private_kdf_params,
+    burn_mode: row.burn_mode ?? nested?.burn_mode,
+    expires_at: row.expires_at ?? nested?.expires_at,
+    updated_at: row.updated_at ?? nested?.updated_at,
+  };
+}
+
+function hasPrivateEnvelope(row: NoteRow): boolean {
+  const ciphertext = row.ciphertext ?? row.private_ciphertext;
+  const kdf = row.kdf_params ?? row.private_kdf_params;
+  return typeof ciphertext === "string" && ciphertext.length > 0 && kdf != null;
+}
+
+/** Delivery Gate create allowlist — never send KNP `version` or the state-header sig. */
+export function createPlaceRequestBody(command: PublishProtectedNoteCommand): Record<string, unknown> {
+  if (!command.gateSignatureB64) {
+    throw new Error("create place requires a Gate CBOR signature");
+  }
+  return {
+    ...createPlaceDocument(command),
     owner_public_key: command.meta.owner_public_key,
-    state_signature: command.meta.state.header.signatureB64,
+    state_signature: command.gateSignatureB64,
   };
 }
 
 /** Delivery Gate private-save allowlist — no expected_version / history fields. */
 export function savePrivateRequestBody(command: AppendProtectedNoteCommand): Record<string, unknown> {
+  if (!command.gateSignatureB64) {
+    throw new Error("private save requires a Gate CBOR signature");
+  }
   return {
-    ciphertext: bytesToBase64(command.noteEnvelope),
-    kdf_params: command.meta as unknown as Record<string, unknown>,
+    ...savePrivateDocument(command),
     writer_public_key: command.writerPublicKeyB64,
-    state_signature: command.stateSignatureB64,
+    state_signature: command.gateSignatureB64,
   };
 }
 
@@ -101,30 +123,33 @@ export function createNoteApiDeliveryClient(): NoteDeliveryClient {
     },
 
     async fetchProtectedNote(slug: string) {
-      const readRow = async (row: NoteRow) => ({
-        exists: true as const,
-        slug: row.slug ?? slug,
-        noteEnvelope: base64ToBytes(String(row.ciphertext ?? row.private_ciphertext ?? "")),
-        saltB64: String(row.salt ?? row.private_salt ?? ""),
-        meta: parseMeta(row.kdf_params ?? row.private_kdf_params),
-        burnMode: String(row.burn_mode ?? "never"),
-        expiresAt: row.expires_at ?? null,
-        updatedAt: String(row.updated_at ?? ""),
-      });
+      const readRow = (row: NoteRow) => {
+        const flat = flattenNoteRow(row);
+        return {
+          exists: true as const,
+          slug: flat.slug ?? slug,
+          noteEnvelope: base64ToBytes(String(flat.ciphertext ?? "")),
+          saltB64: String(flat.salt ?? ""),
+          meta: parseMeta(flat.kdf_params),
+          burnMode: String(flat.burn_mode ?? "never"),
+          expiresAt: flat.expires_at ?? null,
+          updatedAt: String(flat.updated_at ?? ""),
+        };
+      };
       try {
-        const row = await noteApiJson<NoteRow>("GET", noteResourceUrl(slug, "private"));
-        return await readRow(row);
+        const row = flattenNoteRow(await noteApiJson<NoteRow>("GET", noteResourceUrl(slug, "private")));
+        if (hasPrivateEnvelope(row)) return readRow(row);
       } catch (error) {
         if (!isMissingPlaceError(error) && !(error instanceof NoteApiError && error.status === 405)) {
           throw error;
         }
       }
       try {
-        const row = await noteApiJson<NoteRow>("GET", noteResourceUrl(slug));
-        if (!row.ciphertext && !row.private_ciphertext) {
+        const row = flattenNoteRow(await noteApiJson<NoteRow>("GET", noteResourceUrl(slug)));
+        if (!hasPrivateEnvelope(row)) {
           return { exists: false as const };
         }
-        return await readRow(row);
+        return readRow(row);
       } catch (error) {
         if (isMissingPlaceError(error)) {
           return { exists: false as const };

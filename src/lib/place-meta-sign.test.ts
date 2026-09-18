@@ -7,9 +7,9 @@ describe("place-meta-sign", () => {
     expect(
       placeDocumentSignPayload("garden", "knp-place-settings-1", { preset: "paper" }),
     ).toEqual({
+      document: { preset: "paper" },
       purpose: "knp-place-settings-1",
       slug: "garden",
-      document: { preset: "paper" },
     });
   });
 

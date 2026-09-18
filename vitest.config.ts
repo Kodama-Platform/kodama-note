@@ -16,7 +16,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    include: ["src/**/*.{test,spec}.{ts,tsx}", "packages/kodama-editor/src/**/*.{test,spec}.{ts,tsx}"],
   },
   resolve: {
     alias: {
