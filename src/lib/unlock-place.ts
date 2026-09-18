@@ -6,6 +6,7 @@ import {
   getFragmentCapability,
 } from "@/lib/knp-fragment";
 import { writeKnpSecrets } from "@/lib/knp-secrets";
+import { mergePublicAndPrivate } from "@/lib/tab-visibility";
 import { serializeWorkbook } from "@/lib/workbook";
 import type { ExistingPage } from "@/lib/page-query";
 import { composeKodamaNoteApp } from "@/lib/security-bootstrap";
@@ -17,7 +18,7 @@ export type UnlockedPlace = {
   capability: UnlockCapability;
 };
 
-export { unlockErrorMessage } from "@/lib/crypto";
+export { unlockErrorMessage } from "@/lib/crypto-utils";
 
 function isKnpPage(page: ExistingPage): boolean {
   const meta = page.kdf_params as { protocol?: string } | null;
@@ -48,7 +49,7 @@ export async function unlockPlace(args: {
     });
     return {
       crypto: createKnpSession(unlocked.session),
-      plaintext: serializeWorkbook(unlocked.workbook),
+      plaintext: serializeWorkbook(mergePublicAndPrivate(page.public_tabs ?? [], unlocked.workbook)),
       capability: resolveUnlockCapability({ hasEditorSecrets: true }),
     };
   }
@@ -58,18 +59,14 @@ export async function unlockPlace(args: {
     const cap = decodeReaderCapability(readFrag);
     if (!cap) throw new Error("Invalid reader capability");
     const unlocked = await note.unlockWithReaderCapability({ slug: page.slug, capability: cap });
-    writeKnpSecrets(
-      page.slug,
-      {
-        readerCapability: encodeCapabilityFragment(cap),
-        editorCapability: "",
-        isOwner: false,
-      },
-      { persist: true },
-    );
+    writeKnpSecrets(page.slug, {
+      readerCapability: encodeCapabilityFragment(cap),
+      editorCapability: "",
+      isOwner: false,
+    });
     return {
       crypto: createKnpSession(unlocked.session),
-      plaintext: serializeWorkbook(unlocked.workbook),
+      plaintext: serializeWorkbook(mergePublicAndPrivate(page.public_tabs ?? [], unlocked.workbook)),
       capability: resolveUnlockCapability({ hasReadCapability: true }),
     };
   }
@@ -87,7 +84,7 @@ export async function unlockPlace(args: {
   });
   return {
     crypto: createKnpSession(unlocked.session),
-    plaintext: serializeWorkbook(unlocked.workbook),
+    plaintext: serializeWorkbook(mergePublicAndPrivate(page.public_tabs ?? [], unlocked.workbook)),
     capability: resolveUnlockCapability({ hasEditorSecrets: true }),
   };
 }
@@ -110,7 +107,9 @@ export async function unlockPlaceWithEditorImport(args: {
   });
   return {
     crypto: createKnpSession(unlocked.session),
-    plaintext: serializeWorkbook(unlocked.workbook),
+    plaintext: serializeWorkbook(
+      mergePublicAndPrivate(args.page.public_tabs ?? [], unlocked.workbook),
+    ),
     capability: resolveUnlockCapability({ hasEditorSecrets: true }),
   };
 }

@@ -1,4 +1,8 @@
-/** Client-side KNP capability material — never sent to the backend. */
+/**
+ * Client-side KNP capability material — never sent to the backend.
+ * Stored in sessionStorage only. `persist` writes a reader-only copy to
+ * localStorage when the user explicitly chooses “remember this device”.
+ */
 export type KnpSecrets = {
   /** Compact reader capability JSON (base64url of UTF-8 JSON). */
   readerCapability: string;

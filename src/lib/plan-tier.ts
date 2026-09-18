@@ -1,8 +1,12 @@
 export type PlanTier = "free" | "starter" | "pro" | "premium";
 
-/** Stub — wire to billing / account when available. */
-export function getPlanTier(): PlanTier {
-  return "free";
+export function isPlanTier(value: unknown): value is PlanTier {
+  return value === "free" || value === "starter" || value === "pro" || value === "premium";
+}
+
+/** Resolve plan from place entitlement. Missing entitlement → free. */
+export function getPlanTier(entitlement?: { plan?: unknown } | null): PlanTier {
+  return isPlanTier(entitlement?.plan) ? entitlement.plan : "free";
 }
 
 /** `null` means unlimited (premium). */

@@ -10,6 +10,11 @@ export type MediaResolveSrc = (src: string) => Promise<string | null> | string |
 export type KodamaMediaAdapter = {
   /** Resolve non-http image srcs (e.g. product attachment schemes). */
   readonly resolveSrc?: MediaResolveSrc;
+  /**
+   * Persist a pasted or dropped image and return the src to insert.
+   * Products should upload/encrypt here; the editor falls back to a blob URL.
+   */
+  readonly upload?: (file: File) => Promise<string | null> | string | null;
   /** Called when the editor unmounts — revoke blob URLs, clear caches. */
   readonly dispose?: () => void;
 };
@@ -39,6 +44,8 @@ export type KodamaEditorProps = {
   readonly onChange?: (markdown: string) => void;
   /** @deprecated Prefer `onChange`. */
   readonly onMarkdownChange?: (markdown: string) => void;
+  /** Immediate user-edit signal — do not wait for serialized markdown. */
+  readonly onDirty?: () => void;
   /** Fired after TipTap finishes parsing initial content — align save baselines. */
   readonly onBaseline?: (markdown: string) => void;
   readonly editable?: boolean;

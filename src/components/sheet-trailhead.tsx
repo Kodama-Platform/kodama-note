@@ -10,7 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { sheetPreviewText } from "@/lib/sheet-preview";
-import type { WorkbookSheet } from "@/lib/workbook";
+import { sheetVisibility } from "@/lib/tab-visibility";
+import type { TabVisibility, WorkbookSheet } from "@/lib/workbook";
 
 export type SheetTrailheadProps = {
   sheets: WorkbookSheet[];
@@ -19,9 +20,11 @@ export type SheetTrailheadProps = {
   activeMarkdown?: string;
   canEdit: boolean;
   onSelect: (sheetId: string) => void;
-  onAdd: () => void;
+  onAdd: (visibility?: TabVisibility) => void;
   onRename: (sheetId: string, title: string) => void;
   onDelete: (sheetId: string) => void;
+  canChangeVisibility?: boolean;
+  onSetVisibility?: (sheetId: string, visibility: TabVisibility) => void;
 };
 
 /** Readable trail switcher under the page title — names live in the popover, not as tabs. */
@@ -34,6 +37,8 @@ export function SheetTrailhead({
   onAdd,
   onRename,
   onDelete,
+  canChangeVisibility,
+  onSetVisibility,
 }: SheetTrailheadProps) {
   const sorted = useMemo(
     () => [...sheets].sort((a, b) => a.order - b.order || a.title.localeCompare(b.title)),
@@ -112,10 +117,15 @@ export function SheetTrailhead({
         )}
 
         {canEdit && (
-          <button type="button" className="sheet-trailhead-grow" onClick={onAdd}>
-            <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
-            Grow trail
-          </button>
+          <div className="sheet-trailhead-grow-group">
+            <button type="button" className="sheet-trailhead-grow" onClick={() => onAdd("private")}>
+              <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Private
+            </button>
+            <button type="button" className="sheet-trailhead-grow" onClick={() => onAdd("public")}>
+              Public
+            </button>
+          </div>
         )}
 
         {open && multi && (
@@ -138,12 +148,37 @@ export function SheetTrailhead({
                     >
                       <span className="sheet-trailhead-item-index">{i + 1}</span>
                       <span className="sheet-trailhead-item-body">
-                        <span className="sheet-trailhead-item-title">{title}</span>
+                        <span className="sheet-trailhead-item-title">
+                          {title}
+                          <span className={`sheet-visibility-badge sheet-visibility-badge--${sheetVisibility(sheet)}`}>
+                            {sheetVisibility(sheet)}
+                          </span>
+                        </span>
                         <span className="sheet-trailhead-item-preview">{previewFor(sheet)}</span>
                       </span>
                     </button>
                     {canEdit && (
                       <div className="sheet-trailhead-item-actions">
+                        {canChangeVisibility && onSetVisibility && (
+                          <button
+                            type="button"
+                            className="sheet-trailhead-icon-btn"
+                            aria-label={
+                              sheetVisibility(sheet) === "public"
+                                ? `Make ${title} private`
+                                : `Make ${title} public`
+                            }
+                            onClick={() => {
+                              onSetVisibility(
+                                sheet.sheet_id,
+                                sheetVisibility(sheet) === "public" ? "private" : "public",
+                              );
+                              setOpen(false);
+                            }}
+                          >
+                            {sheetVisibility(sheet) === "public" ? "Hide" : "Share"}
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="sheet-trailhead-icon-btn"

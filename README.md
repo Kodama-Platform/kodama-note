@@ -14,22 +14,9 @@ Cryptography follows **Kodama Note Protocol (KNP-1)** on **Kodama Security Core 
 | Edit / save | Owner or editor signing key + signed state header |
 | Owner settings | Password unlock (owner role) |
 
-The Delivery Gate stores ciphertext and public meta only — it never decrypts notes. Writes go through `knp-create-page` / `knp-append-version` edge functions (or RPC fallback in local/dev).
+The Delivery Gate stores an encrypted **private-tab bundle** and **public tab documents**. It never decrypts private notes. **This repo is the trusted client only.** Set `VITE_BACKEND_URL` to the gate root; notes are `{VITE_BACKEND_URL}/v1/notes` and files are `{VITE_BACKEND_URL}/v1/files`.
 
-Deploy migrations and edge functions before saving in production:
-
-```bash
-# From kodama-note/
-supabase db push
-yarn vendor:ksc
-supabase functions deploy knp-create-page
-supabase functions deploy knp-append-version
-```
-
-| Edge function | Purpose |
-|---------------|---------|
-| `knp-create-page` | Accept KNP meta + envelope ciphertext, insert page |
-| `knp-append-version` | Monotonic version + writer checks, append ciphertext |
+Assumed routes: [`docs/NOTE_API.md`](docs/NOTE_API.md). Do not add SQL, edge functions, or a backend in this repo.
 
 Prior temporary KSP pages are wiped (not migrated). Create new notes under KNP-1.
 

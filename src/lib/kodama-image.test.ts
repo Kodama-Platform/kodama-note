@@ -23,7 +23,7 @@ vi.mock("@/lib/attachment-crypto", () => ({
   attachmentContentType: vi.fn((mime: string) => mime),
 }));
 
-import { resolveKodamaAttachmentUrl } from "@/lib/kodama-image";
+import { primeKodamaBlobCache, resolveKodamaAttachmentUrl } from "@/lib/kodama-image";
 
 const knpCrypto = { kind: "knp" as const, session: {} as never };
 
@@ -45,6 +45,17 @@ describe("resolveKodamaAttachmentUrl", () => {
       allowedAttachmentIds: new Set(["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"]),
     });
     expect(url).toBeNull();
+  });
+
+  it("returns a primed blob even when the id is not yet in the allowed set", async () => {
+    const pendingId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    primeKodamaBlobCache("test", pendingId, new Blob(["x"], { type: "image/png" }));
+    const url = await resolveKodamaAttachmentUrl(pendingId, {
+      slug: "test",
+      crypto: knpCrypto,
+      allowedAttachmentIds: new Set(),
+    });
+    expect(url).toMatch(/^blob:/);
   });
 
   it("resolves when id is in allowed set", async () => {

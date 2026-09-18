@@ -4,7 +4,8 @@ export function getHashParams(): URLSearchParams {
 }
 
 export function getSheetIdFromHash(): string | null {
-  const id = getHashParams().get("sheet");
+  const params = getHashParams();
+  const id = params.get("sheet") || params.get("tab");
   return id && id.length > 0 ? id : null;
 }
 

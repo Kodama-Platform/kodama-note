@@ -25,6 +25,15 @@ describe("assertNoSecretsInPayload", () => {
     ).toThrow(/password/i);
   });
 
+  it("allows place-settings text color", () => {
+    expect(() =>
+      assertNoSecretsInPayload(
+        { schema: "knp-place-settings-1", preset: "custom", text: "#3A3730" },
+        "PUT settings",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects plaintext fields", () => {
     expect(() =>
       assertNoSecretsInPayload({ p_slug: "notes", plaintext: "hello" }, "kodama_append_version"),

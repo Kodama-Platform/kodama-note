@@ -10,7 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatRelativeTime } from "@/lib/relative-time";
-import type { WorkbookSheet } from "@/lib/workbook";
+import { sheetVisibility } from "@/lib/tab-visibility";
+import type { TabVisibility, WorkbookSheet } from "@/lib/workbook";
 
 export type SheetNavProps = {
   sheets: WorkbookSheet[];
@@ -19,7 +20,7 @@ export type SheetNavProps = {
   activeMarkdown?: string;
   canEdit: boolean;
   onSelect: (sheetId: string) => void;
-  onAdd: () => void;
+  onAdd: (visibility?: TabVisibility) => void;
   onRename: (sheetId: string, title: string) => void;
   onDelete: (sheetId: string) => void;
   onReorder: (orderedIds: string[]) => void;
@@ -149,7 +150,12 @@ export function SheetNav({
                 aria-label={`Open ${sheet.title}`}
                 title={canEdit ? "Double-click to rename" : sheet.title}
               >
-                <span className="sheet-list-title">{sheet.title}</span>
+                <span className="sheet-list-title">
+                  {sheet.title}
+                  <span className={`sheet-visibility-badge sheet-visibility-badge--${sheetVisibility(sheet)}`}>
+                    {sheetVisibility(sheet)}
+                  </span>
+                </span>
                 {when ? <span className="sheet-list-meta">{when}</span> : null}
               </button>
             )}
@@ -183,10 +189,15 @@ export function SheetNav({
   );
 
   const addButton = canEdit ? (
-    <button type="button" onClick={onAdd} className="sheet-thumb-add" aria-label="Add sheet">
-      <Plus className="h-3.5 w-3.5 shrink-0" />
-      New sheet
-    </button>
+    <div className="flex flex-col gap-1">
+      <button type="button" onClick={() => onAdd("private")} className="sheet-thumb-add" aria-label="Add private sheet">
+        <Plus className="h-3.5 w-3.5 shrink-0" />
+        Private sheet
+      </button>
+      <button type="button" onClick={() => onAdd("public")} className="sheet-thumb-add" aria-label="Add public sheet">
+        Public page
+      </button>
+    </div>
   ) : null;
 
   const body = (

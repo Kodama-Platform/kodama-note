@@ -7,34 +7,83 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-package-lock.json
-yarn.lock
+# Dependencies
+node_modules/
 
-node_modules
+# Yarn 4 (node-modules linker) — keep .yarnrc.yml tracked
+.yarn/
+.pnp.*
+.yarn-cache/
+.yarn-cache-*/
+.yarn-cache-local/
+
+# Alternate lockfiles (this repo uses Yarn)
+package-lock.json
+pnpm-lock.yaml
+bun.lock
+
+# Build / generate
 dist
 dist-ssr
-.yarn-cache-local
-.cert
+*.tsbuildinfo
 .output
 .vinxi
-.tanstack/**
+.tanstack/
 .nitro
+.vite/
+.turbo
+
+# Local Vite cache (also written off-Dropbox via vite.config.ts)
+**/node_modules/.vite
+
+# Dev TLS (scripts/generate-dev-cert.mjs)
+.cert/
+*.pem
+
+# Env / secrets
 *.local
 .env
 .env.*
 !.env.example
 
+# Test / coverage
+coverage/
+*.lcov
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+
+# Tool caches
+.eslintcache
+.prettiercache
+.cache/
+
+# Supabase local
+supabase/.temp/
+supabase/.branches/
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
 
-# Editor directories and files
+# Editor / OS
+*.code-workspace
+.cursor
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
-supabase/functions/vendor
+
+# Dropbox (this tree lives under Dropbox)
+*conflicted copy*
+*Conflicted Copy*
+.dropbox
+.dropbox.attr

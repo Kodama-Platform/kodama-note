@@ -4,6 +4,8 @@ import { formatAttachmentLimit, getPlanTier, maxAttachmentsPerSheet } from "@/li
 describe("plan-tier", () => {
   it("defaults to free", () => {
     expect(getPlanTier()).toBe("free");
+    expect(getPlanTier(null)).toBe("free");
+    expect(getPlanTier({ plan: "pro" })).toBe("pro");
   });
 
   it("maps tier limits per sheet", () => {

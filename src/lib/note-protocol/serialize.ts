@@ -1,15 +1,15 @@
 import { utf8Decode, utf8Encode } from "@kodama.page/core";
 
 import type { WorkbookPayload } from "@/lib/workbook";
-import { parseWorkbook, serializeWorkbook } from "@/lib/workbook";
+import { parsePrivateBundle, serializePrivateBundle } from "@/lib/workbook";
 
-/** Product-owned workbook → opaque bytes (KSC never inspects meaning). */
+/** Encrypt only the private-tab bundle. Public tabs never enter the envelope. */
 export function serializeWorkbookBytes(workbook: WorkbookPayload): Uint8Array {
-  return utf8Encode(serializeWorkbook(workbook));
+  return utf8Encode(serializePrivateBundle(workbook));
 }
 
 export function deserializeWorkbookBytes(bytes: Uint8Array): WorkbookPayload {
-  return parseWorkbook(utf8Decode(bytes));
+  return parsePrivateBundle(utf8Decode(bytes));
 }
 
 /** Minimal attachment manifest document stored beside the note envelope. */

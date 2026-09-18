@@ -4,6 +4,7 @@
 
 import type { NoteSession } from "@/lib/note-protocol";
 import { composeKodamaNoteApp } from "@/lib/security-bootstrap";
+import { privateWorkbookFrom } from "@/lib/tab-visibility";
 import type { WorkbookPayload } from "@/lib/workbook";
 
 export type PlaceCryptoSession =
@@ -14,10 +15,18 @@ export type PlaceCryptoSession =
   | {
       /** Dev / UI-polish session — no encryption; workbook saved to localStorage. */
       kind: "plaintext";
+    }
+  | {
+      /** Public tabs only — no private key material in memory. */
+      kind: "public";
     };
 
 export function createPlaintextSession(): PlaceCryptoSession {
   return { kind: "plaintext" };
+}
+
+export function createPublicSession(): PlaceCryptoSession {
+  return { kind: "public" };
 }
 
 export function createKnpSession(session: NoteSession): PlaceCryptoSession {
@@ -34,10 +43,13 @@ export async function saveKnpWorkbook(
   session: PlaceCryptoSession,
   workbook: WorkbookPayload,
 ): Promise<PlaceCryptoSession> {
-  if (session.kind === "plaintext") {
-    throw new Error("Plaintext mode does not encrypt — save via localStorage");
+  if (session.kind !== "knp") {
+    throw new Error("Private tabs can only be saved from an unlocked session");
   }
   const { note } = composeKodamaNoteApp();
-  const next = await note.saveState({ session: session.session, workbook });
+  const next = await note.saveState({
+    session: session.session,
+    workbook: privateWorkbookFrom(workbook),
+  });
   return { kind: "knp", session: next };
 }

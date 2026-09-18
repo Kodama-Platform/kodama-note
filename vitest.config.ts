@@ -31,8 +31,12 @@ export default defineConfig({
               "security-browser/src/index.ts",
             ),
             "brotli-wasm": appPkg("brotli-wasm"),
+            "hash-wasm": appPkg("hash-wasm"),
             "@noble/ed25519": appPkg("@noble/ed25519"),
             "@noble/hashes": appPkg("@noble/hashes"),
+            "@noble/hashes/sha2": path.join(appPkg("@noble/hashes"), "sha2.js"),
+            "@noble/hashes/sha512": path.join(appPkg("@noble/hashes"), "sha512.js"),
+            "@noble/hashes/utils": path.join(appPkg("@noble/hashes"), "utils.js"),
           }
         : {}),
     },

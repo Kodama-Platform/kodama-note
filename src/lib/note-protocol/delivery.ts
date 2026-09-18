@@ -1,5 +1,3 @@
-import type { AttachmentTransportManifest, EncryptedChunk } from "@kodama.page/core";
-
 import type { NotePolicyBundle } from "./policy";
 import type { SignedState } from "./state";
 
@@ -49,28 +47,49 @@ export type AppendProtectedNoteCommand = {
 export type PublishAttachmentCommand = {
   readonly kind: "note.publishAttachment";
   readonly slug: string;
-  readonly placeId: string;
-  readonly objectId: string;
+  readonly storagePath: string;
+  readonly iv: string;
+  readonly filenameCiphertext: string;
+  readonly filenameIv: string;
+  readonly mime: string;
+  readonly size: number;
+};
+
+export type DeleteAttachmentCommand = {
+  readonly kind: "note.deleteAttachment";
+  readonly slug: string;
   readonly attachmentId: string;
-  readonly manifest: AttachmentTransportManifest;
-  readonly chunks: readonly EncryptedChunk[];
-  readonly fileKeyId: string;
+};
+
+export type UpdateExpiryCommand = {
+  readonly kind: "note.updateExpiry";
+  readonly slug: string;
+  readonly burnMode: string;
 };
 
 export interface NoteDeliveryClient {
   publishProtectedNote(command: PublishProtectedNoteCommand): Promise<{ expires_at: string | null }>;
   appendProtectedNote(command: AppendProtectedNoteCommand): Promise<void>;
-  fetchProtectedNote(slug: string): Promise<{
-    exists: false;
-  } | {
-    exists: true;
-    slug: string;
-    noteEnvelope: Uint8Array;
-    saltB64: string;
-    meta: KnpPlaceMeta;
-    burnMode: string;
-    expiresAt: string | null;
-    updatedAt: string;
-  }>;
-  publishEncryptedAttachment?(command: PublishAttachmentCommand): Promise<void>;
+  fetchProtectedNote(slug: string): Promise<
+    | {
+        exists: false;
+      }
+    | {
+        exists: true;
+        slug: string;
+        noteEnvelope: Uint8Array;
+        saltB64: string;
+        meta: KnpPlaceMeta;
+        burnMode: string;
+        expiresAt: string | null;
+        updatedAt: string;
+      }
+  >;
+  publishEncryptedAttachment(
+    command: PublishAttachmentCommand,
+  ): Promise<{ id: string; created_at: string }>;
+  deleteEncryptedAttachment(command: DeleteAttachmentCommand): Promise<void>;
+  updateExpiry(
+    command: UpdateExpiryCommand,
+  ): Promise<{ burn_mode: string; expires_at: string | null }>;
 }

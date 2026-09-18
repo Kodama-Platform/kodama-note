@@ -1,18 +1,18 @@
-import { DEFAULT_KDF_PARAMS } from "@/lib/crypto";
+import { DEFAULT_KDF_PARAMS } from "@/lib/crypto-utils";
 
 /** Core threat-model flow — answers "Can Kodama read my pages?" */
 export const THREAT_MODEL_STEPS = [
   { label: "You write", detail: "Plaintext stays in your browser tab." },
   { label: "Encrypted in your browser", detail: "Argon2id + AES-256-GCM before any network request." },
   { label: "Only ciphertext reaches Kodama", detail: "We store blobs we cannot decrypt." },
-  { label: "Readers decrypt locally with the password", detail: "The server never sees the password or key." },
+  { label: "Readers decrypt locally with a capability or password", detail: "The server never sees the password, CEK, or share secret." },
 ] as const;
 
 export const VISIBILITY = {
   canSee: [
     "Page slug (the URL path you chose)",
     "Encrypted ciphertext blob",
-    "Salt, IV, and KDF parameters",
+    "Salt, public keys, and KNP metadata (policy, versions, hashes)",
     "Creation and update timestamps",
     "Approximate ciphertext size",
     "Expiry / burn-after-read settings",
@@ -20,7 +20,7 @@ export const VISIBILITY = {
   cannotSee: [
     "Page contents (plaintext)",
     "Your password",
-    "Derived encryption key",
+    "Derived encryption key, reader secret, or signing keys",
     "Attachment filenames or file bytes (also encrypted)",
     "Who reads a page or when",
     "IP addresses for analytics (we don't run analytics)",
@@ -28,12 +28,12 @@ export const VISIBILITY = {
 } as const;
 
 export const CRYPTO_SPEC_STEPS = [
-  "Password",
-  "Argon2id",
-  "256-bit key",
-  "AES-256-GCM",
-  "Ciphertext",
-  "Server",
+  "Password / capability",
+  "Argon2id + HKDF",
+  "Content key",
+  "AES-256-GCM + Ed25519",
+  "Signed envelope",
+  "Delivery Gate",
 ] as const;
 
 export const LIMITATIONS = [
@@ -47,7 +47,7 @@ export const LIMITATIONS = [
   },
   {
     title: "Slug names are public",
-    body: "Anyone can see that note.kodama.page/your-slug exists. They cannot read the contents without the password.",
+    body: "Anyone can see that a slug exists. They cannot read the contents without the owner password or a share capability.",
   },
   {
     title: "Browser security matters",

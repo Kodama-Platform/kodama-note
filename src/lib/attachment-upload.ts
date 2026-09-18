@@ -1,8 +1,10 @@
 import { encryptAttachmentPayload } from "@/lib/attachment-crypto";
 import type { PlaceCryptoSession } from "@/lib/crypto-context";
-import { randomPath } from "@/lib/crypto";
+import { randomPath } from "@/lib/crypto-utils";
+import { attachmentStorageUrl } from "@/lib/note-api";
 import { registerAttachment, uploadAttachmentBlob } from "@/lib/pages";
-import { kodamaAttUrl } from "@/lib/kodama-image";
+import type { NoteSession } from "@/lib/note-protocol";
+import { composeKodamaNoteApp } from "@/lib/security-bootstrap";
 
 const MAX_BYTES = 20 * 1024 * 1024;
 
@@ -10,7 +12,7 @@ export async function uploadEncryptedAttachment(args: {
   file: File;
   slug: string;
   crypto: PlaceCryptoSession;
-}): Promise<{ id: string; url: string; mime: string }> {
+}): Promise<{ id: string; url: string; mime: string; session?: NoteSession }> {
   const { file, slug, crypto } = args;
   if (file.size > MAX_BYTES) {
     throw new Error("Max 20 MB per file");
@@ -27,7 +29,10 @@ export async function uploadEncryptedAttachment(args: {
   });
   const path = `${slug}/${randomPath()}.bin`;
 
-  await uploadAttachmentBlob(path, new Blob([encrypted.ciphertext.buffer as ArrayBuffer]));
+  const url = await uploadAttachmentBlob(
+    path,
+    new Blob([encrypted.ciphertext.buffer as ArrayBuffer]),
+  );
 
   const { id } = await registerAttachment({
     slug,
@@ -39,5 +44,20 @@ export async function uploadEncryptedAttachment(args: {
     size: file.size,
   });
 
-  return { id, url: kodamaAttUrl(id), mime: file.type || "application/octet-stream" };
+  const { note } = composeKodamaNoteApp();
+  const session = note.rememberAttachment(crypto.session, {
+    attachmentId: encrypted.attachmentId,
+    fileKeyB64: encrypted.fileKeyB64,
+    transportManifestB64: encrypted.transportManifestB64,
+    filename: file.name,
+    mediaType: file.type || "application/octet-stream",
+  });
+
+  return {
+    id,
+    url: url || attachmentStorageUrl(slug, path),
+    storagePath: path,
+    mime: file.type || "application/octet-stream",
+    session,
+  };
 }

@@ -9,7 +9,7 @@ import {
 } from "@kodama.page/core";
 
 import { KNP_PROTOCOL, KNP_SUITE } from "./constants";
-import { toBufferSource } from "@/lib/crypto";
+import { toBufferSource } from "@/lib/crypto-utils";
 
 export type EditorCertificate = {
   readonly noteId: string;
@@ -153,5 +153,18 @@ export async function verifyPolicySignature(
     publicKey: ownerPublicKey,
     message,
     signature: base64ToBytes(policy.signatureB64),
+  });
+}
+
+export async function verifyEditorCertificate(
+  security: SecurityProvider,
+  cert: EditorCertificate,
+  ownerPublicKey: PublicKeyBytes | Uint8Array,
+): Promise<boolean> {
+  const message = encodeCbor(certBody(cert));
+  return security.signatures.verify({
+    publicKey: ownerPublicKey,
+    message,
+    signature: base64ToBytes(cert.signatureB64),
   });
 }

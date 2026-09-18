@@ -39,6 +39,13 @@ import {
   replaceTextMatch,
   selectTextMatch,
 } from "./lib/editor-find";
+import {
+  clipboardLikelyHasImage,
+  collectClipboardImages,
+  httpImageSrcsFromHtml,
+  imageAltFromFile,
+  readImagesFromClipboardApi,
+} from "./lib/clipboard-images";
 import { EditorThemeStyleProvider } from "./theme-context";
 import { themeRootClassName, themeToCssVars } from "./theme";
 import type { KodamaEditorHandle, KodamaEditorProps } from "./types";
@@ -61,6 +68,55 @@ function shouldParsePasteAsMarkdown(text: string): boolean {
     /`[^`]+`/.test(text) ||
     /(\*\*|__).+\1/.test(text)
   );
+}
+
+function insertImageAt(editor: Editor, src: string, alt: string, pos?: number) {
+  const node = { type: "image" as const, attrs: { src, alt } };
+  const chain = editor.chain().focus();
+  if (typeof pos === "number") chain.insertContentAt(pos, node);
+  else chain.insertContent(node);
+  chain.run();
+}
+
+async function pasteImagesFromClipboard(
+  editor: Editor,
+  data: DataTransfer | null | undefined,
+  media: KodamaEditorProps["media"],
+  pos?: number,
+): Promise<boolean> {
+  let files = collectClipboardImages(data);
+  if (!files.length && clipboardLikelyHasImage(data)) {
+    files = await readImagesFromClipboardApi();
+  }
+  if (files.length) {
+    await insertImageFiles(editor, files, media, pos);
+    return true;
+  }
+  const urls = httpImageSrcsFromHtml(data?.getData("text/html") ?? "");
+  if (!urls.length) return false;
+  for (const src of urls) insertImageAt(editor, src, "", pos);
+  return true;
+}
+
+async function insertImageFiles(
+  editor: Editor,
+  files: File[],
+  media: KodamaEditorProps["media"],
+  pos?: number,
+) {
+  let insertPos = pos;
+  for (const file of files) {
+    try {
+      const src = media?.upload
+        ? await Promise.resolve(media.upload(file))
+        : URL.createObjectURL(file);
+      if (!src) continue;
+      insertImageAt(editor, src, imageAltFromFile(file), insertPos);
+      insertPos = undefined;
+    } catch {
+      /* product adapter reports errors */
+    }
+  }
 }
 
 function pasteMarkdownText(editor: Editor, text: string) {
@@ -117,6 +173,7 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
       initialContent,
       onChange,
       onMarkdownChange,
+      onDirty,
       onBaseline,
       editable: editableProp = true,
       autoFocus = true,
@@ -146,6 +203,15 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
     const baselineSet = useRef(false);
     const baselineUntil = useRef(0);
     const editorRef = useRef<Editor | null>(null);
+    const emitChangeRef = useRef(emitChange);
+    const onDirtyRef = useRef(onDirty);
+    const onBaselineRef = useRef(onBaseline);
+    const mediaRef = useRef(media);
+    const changeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    emitChangeRef.current = emitChange;
+    onDirtyRef.current = onDirty;
+    onBaselineRef.current = onBaseline;
+    mediaRef.current = media;
     const outlineJumpRef = useRef(false);
     const openLinkDialogRef = useRef<() => void>(() => {});
     const [linkWarning, setLinkWarning] = useState<LinkRiskAssessment | null>(null);
@@ -223,14 +289,29 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
           spellcheck: "true",
         },
         handlePaste(_view, event) {
-          const text = event.clipboardData?.getData("text/plain");
           const ed = editorRef.current;
-          if (text?.trim() && ed?.storage.markdown?.parser && shouldParsePasteAsMarkdown(text)) {
+          if (!ed || !ed.isEditable) return false;
+          if (clipboardLikelyHasImage(event.clipboardData)) {
+            event.preventDefault();
+            void pasteImagesFromClipboard(ed, event.clipboardData, mediaRef.current);
+            return true;
+          }
+          const text = event.clipboardData?.getData("text/plain");
+          if (text?.trim() && ed.storage.markdown?.parser && shouldParsePasteAsMarkdown(text)) {
             event.preventDefault();
             pasteMarkdownText(ed, text);
             return true;
           }
           return false;
+        },
+        handleDrop(view, event) {
+          const ed = editorRef.current;
+          if (!ed || !ed.isEditable) return false;
+          if (!clipboardLikelyHasImage(event.dataTransfer)) return false;
+          event.preventDefault();
+          const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+          void pasteImagesFromClipboard(ed, event.dataTransfer, mediaRef.current, pos);
+          return true;
         },
         handleClick(view, _pos, event) {
           if (!(event.ctrlKey || event.metaKey)) return false;
@@ -258,10 +339,10 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
         },
       },
       onUpdate: ({ editor: ed, transaction }) => {
-        const md = ed.storage.markdown.getMarkdown();
         const syncBaseline = () => {
+          const md = ed.storage.markdown.getMarkdown();
           lastEmitted.current = md;
-          onBaseline?.(md);
+          onBaselineRef.current?.(md);
         };
         if (!baselineSet.current) {
           baselineSet.current = true;
@@ -275,8 +356,14 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
           syncBaseline();
           return;
         }
-        lastEmitted.current = md;
-        emitChange?.(md);
+        onDirtyRef.current?.();
+        if (changeTimerRef.current) clearTimeout(changeTimerRef.current);
+        changeTimerRef.current = setTimeout(() => {
+          changeTimerRef.current = null;
+          const md = ed.storage.markdown.getMarkdown();
+          lastEmitted.current = md;
+          emitChangeRef.current?.(md);
+        }, 120);
       },
       autofocus: autoFocus ? "end" : false,
       onCreate: ({ editor: ed }) => {
@@ -286,10 +373,14 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
           baselineSet.current = true;
           const md = ed.storage.markdown.getMarkdown();
           lastEmitted.current = md;
-          onBaseline?.(md);
+          onBaselineRef.current?.(md);
         }
       },
       onDestroy: () => {
+        if (changeTimerRef.current) {
+          clearTimeout(changeTimerRef.current);
+          changeTimerRef.current = null;
+        }
         editorRef.current = null;
       },
     });
@@ -310,8 +401,35 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
       const onTab = (event: KeyboardEvent) => {
         handleEditorTabKeydown(event, editor);
       };
+      const onPaste = (event: ClipboardEvent) => {
+        if (!editor.isEditable) return;
+        if (!clipboardLikelyHasImage(event.clipboardData)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void pasteImagesFromClipboard(editor, event.clipboardData, mediaRef.current);
+      };
+      const onDrop = (event: DragEvent) => {
+        if (!editor.isEditable) return;
+        if (!clipboardLikelyHasImage(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const pos = editor.view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+        void pasteImagesFromClipboard(editor, event.dataTransfer, mediaRef.current, pos);
+      };
+      const onDragOver = (event: DragEvent) => {
+        if (!clipboardLikelyHasImage(event.dataTransfer)) return;
+        event.preventDefault();
+      };
       el.addEventListener("keydown", onTab, true);
-      return () => el.removeEventListener("keydown", onTab, true);
+      el.addEventListener("paste", onPaste, true);
+      el.addEventListener("drop", onDrop, true);
+      el.addEventListener("dragover", onDragOver, true);
+      return () => {
+        el.removeEventListener("keydown", onTab, true);
+        el.removeEventListener("paste", onPaste, true);
+        el.removeEventListener("drop", onDrop, true);
+        el.removeEventListener("dragover", onDragOver, true);
+      };
     }, [editor]);
 
     useEffect(() => {
@@ -355,17 +473,38 @@ export const KodamaEditor = forwardRef<KodamaEditorHandle, KodamaEditorProps>(
       };
       emitActiveHeading();
       editor.on("selectionUpdate", emitActiveHeading);
-      editor.on("transaction", emitActiveHeading);
+      let headingTimer: ReturnType<typeof setTimeout> | null = null;
+      const onTransaction = () => {
+        if (headingTimer) clearTimeout(headingTimer);
+        headingTimer = setTimeout(() => {
+          headingTimer = null;
+          emitActiveHeading();
+        }, 80);
+      };
+      editor.on("transaction", onTransaction);
       return () => {
+        if (headingTimer) clearTimeout(headingTimer);
         editor.off("selectionUpdate", emitActiveHeading);
-        editor.off("transaction", emitActiveHeading);
+        editor.off("transaction", onTransaction);
       };
     }, [editor, onActiveHeadingChange]);
 
     useImperativeHandle(
       ref,
       () => ({
-        getMarkdown: () => editor?.storage.markdown.getMarkdown() ?? lastEmitted.current,
+        getMarkdown: () => {
+          const ed = editor ?? editorRef.current;
+          if (!ed) return lastEmitted.current;
+          if (changeTimerRef.current) {
+            clearTimeout(changeTimerRef.current);
+            changeTimerRef.current = null;
+            const md = ed.storage.markdown.getMarkdown();
+            lastEmitted.current = md;
+            emitChangeRef.current?.(md);
+            return md;
+          }
+          return ed.storage.markdown.getMarkdown();
+        },
         setMarkdown: (markdown: string) => {
           if (!editor) return;
           const normalized = normalizeTaskListMarkdown(markdown);

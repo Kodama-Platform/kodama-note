@@ -1,7 +1,11 @@
+import { lazy, Suspense } from "react";
 import { Outlet, Link, createRootRoute } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
-import { CommandPalette } from "@/components/command-palette";
 import { NoteShell } from "@/components/site/note-shell";
+
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette").then((m) => ({ default: m.CommandPalette })),
+);
 
 function NotFoundComponent() {
   return (
@@ -60,7 +64,9 @@ function RootComponent() {
     <>
       <Outlet />
       <Toaster />
-      <CommandPalette />
+      <Suspense fallback={null}>
+        <CommandPalette />
+      </Suspense>
     </>
   );
 }

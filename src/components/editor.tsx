@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -47,7 +55,9 @@ import {
 } from "@/lib/editor-headings";
 import { EDITOR_EVENTS, setEditorCommandContext } from "@/lib/editor-commands";
 import { useAutoLock } from "@/hooks/use-auto-lock";
+import { purgeUnusedAttachments } from "@/lib/attachment-gc";
 import { invalidateAttachmentList } from "@/lib/attachment-list";
+import { uploadEncryptedAttachment } from "@/lib/attachment-upload";
 import {
   autoLockLabel,
   autoLockMsFor,
@@ -60,33 +70,42 @@ import {
   saveKnpWorkbook,
   type PlaceCryptoSession,
 } from "@/lib/crypto-context";
-import {
-  getEditorFontScale,
-  getEditorViewWidth,
-  getEditorZoom,
-  setEditorFontScale,
-  setEditorViewWidth,
-  setEditorZoom,
-  type EditorFontScale,
-  type EditorViewWidth,
-  type EditorZoom,
-} from "@/lib/editor-view-prefs";
+import { getEditorZoom, setEditorZoom, type EditorZoom } from "@/lib/editor-view-prefs";
 import { savePlaintextWorkbook } from "@/lib/plaintext-mode";
 import type { LockReason } from "@/lib/lock-session";
+import { noteColorsToCssVars, resolveNoteColors } from "@/lib/note-appearance";
+import { usePlaceBilling } from "@/hooks/use-place-billing";
+import { usePlaceSettings } from "@/hooks/use-place-settings";
+import type { NotePlaceEntitlement, NotePlacePaymentPublic } from "@/lib/note-payment";
 import {
-  getStoredNoteAppearance,
-  noteColorsToCssVars,
-  resolveNoteColors,
-  setStoredNoteAppearance,
-  type NoteAppearance,
-} from "@/lib/note-appearance";
+  placeSettingsToCssVars,
+  type NotePlaceSettings,
+} from "@/lib/note-place-settings";
 import type { NoteTemplate } from "@/lib/note-templates";
 import { pageQueryKey } from "@/lib/page-query";
 import { getSaveMode, setSaveMode, type SaveMode } from "@/lib/save-mode";
 import { getStoredTheme, resolveTheme, watchSystemTheme } from "@/lib/theme";
 import type { UnlockCapability } from "@/lib/unlock-capability";
 import { setSheetHash } from "@/lib/hash-params";
+import { primeKodamaBlobCache } from "@/lib/kodama-image";
+import {
+  formatAttachmentLimit,
+  maxAttachmentsPerSheet,
+} from "@/lib/plan-tier";
+import {
+  deletePublicTab,
+  persistPublicSheets,
+  publishTab,
+  unpublishTab,
+} from "@/lib/note-tabs-api";
 import { deleteAttachment, updateExpiry, type BurnMode } from "@/lib/pages";
+import {
+  UNPUBLISH_WARNING,
+  canMakeSheetPublic,
+  isPublicSheet,
+  setSheetVisibility,
+  sheetVisibility,
+} from "@/lib/tab-visibility";
 import { flushActiveSheetMarkdown } from "@/lib/workbook-flush";
 import {
   buildEditorCapabilityExport,
@@ -98,6 +117,7 @@ import { hasKnpEditorSecrets, readKnpSecrets } from "@/lib/knp-secrets";
 import { composeKodamaNoteApp } from "@/lib/security-bootstrap";
 import {
   addSheet,
+  addSheetAttachment,
   collectSheetAttachmentRefs,
   deleteSheet,
   getActiveSheetMarkdown,
@@ -114,9 +134,19 @@ import {
   WorkbookError,
   writeLastOpenedSheet,
   workbookUsesAttachments,
+  type TabVisibility,
   type WorkbookPayload,
 } from "@/lib/workbook";
 
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read image"));
+    reader.readAsDataURL(file);
+  });
+}
 
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 
@@ -131,7 +161,11 @@ export function Editor({
   burnMode: initialBurnMode,
   expiresAt: initialExpiresAt,
   unlockCapability = "owner",
+  initialSettings = null,
+  initialPayment = null,
+  initialEntitlement = null,
   onLock,
+  onUnlockPrivate,
 }: {
   slug: string;
   initialWorkbook: WorkbookPayload;
@@ -141,7 +175,11 @@ export function Editor({
   burnMode: BurnMode;
   expiresAt: string | null;
   unlockCapability?: UnlockCapability;
+  initialSettings?: NotePlaceSettings | null;
+  initialPayment?: NotePlacePaymentPublic | null;
+  initialEntitlement?: NotePlaceEntitlement | null;
   onLock?: (reason: LockReason) => void;
+  onUnlockPrivate?: () => void;
 }) {
   const isReader = unlockCapability === "reader";
   const navigate = useNavigate();
@@ -152,12 +190,27 @@ export function Editor({
   }, [crypto]);
   const isKnp = cryptoSession.kind === "knp";
   const isPlaintext = cryptoSession.kind === "plaintext";
+  const isPublicOnly = cryptoSession.kind === "public";
   const canSave =
     isPlaintext ||
     (!isReader && canSignKnpWorkbook(cryptoSession) && hasKnpEditorSecrets(slug));
   const canEdit = canSave;
   const canChangeExpiry =
-    !isPlaintext && !isReader && !!readKnpSecrets(slug)?.isOwner;
+    !isPlaintext && !isPublicOnly && !isReader && !!readKnpSecrets(slug)?.isOwner;
+  const canChangePlaceLook = canChangeExpiry || isPlaintext;
+  const place = usePlaceSettings({
+    slug,
+    crypto: cryptoSession,
+    canPersist: canChangeExpiry,
+    initial: initialSettings,
+  });
+  const billing = usePlaceBilling({
+    slug,
+    crypto: cryptoSession,
+    canPersist: canChangeExpiry,
+    initialPayment,
+    initialEntitlement,
+  });
   const [saveMode, setSaveModeState] = useState<SaveMode>(() => getSaveMode());
   const [autoLockDuration, setAutoLockDurationState] = useState<AutoLockDuration>(() =>
     getAutoLockDuration(),
@@ -195,11 +248,9 @@ export function Editor({
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [editorZoom, setEditorZoomState] = useState<EditorZoom>(() => getEditorZoom());
-  const [fontScale, setFontScaleState] = useState<EditorFontScale>(() => getEditorFontScale());
-  const [viewWidth, setViewWidthState] = useState<EditorViewWidth>(() => getEditorViewWidth());
-  const [noteAppearance, setNoteAppearance] = useState<NoteAppearance>(() =>
-    getStoredNoteAppearance(),
-  );
+  const fontScale = place.settings.font_size;
+  const viewWidth = place.settings.view_width;
+  const noteAppearance = place.appearance;
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() =>
     resolveTheme(getStoredTheme()),
   );
@@ -207,7 +258,13 @@ export function Editor({
     () => resolveNoteColors(noteAppearance, resolvedTheme),
     [noteAppearance, resolvedTheme],
   );
-  const noteSurfaceStyle = useMemo(() => noteColorsToCssVars(noteColors), [noteColors]);
+  const noteSurfaceStyle = useMemo(
+    () => ({
+      ...noteColorsToCssVars(noteColors),
+      ...placeSettingsToCssVars(place.settings),
+    }),
+    [noteColors, place.settings],
+  );
   const noteSurfaceFilled = noteColors.background !== "transparent";
 
   useEffect(() => {
@@ -224,10 +281,7 @@ export function Editor({
     };
   }, []);
 
-  const changeNoteAppearance = useCallback((next: NoteAppearance) => {
-    setNoteAppearance(next);
-    setStoredNoteAppearance(next);
-  }, []);
+  const changeNoteAppearance = place.changeAppearance;
 
   const initialSerialized = useMemo(() => serializeWorkbook(initialWorkbook), [initialWorkbook]);
   const lastSavedRef = useRef(initialSerialized);
@@ -237,6 +291,7 @@ export function Editor({
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
   const lockingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const outlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const richEditorRef = useRef<RichEditorHandle | null>(null);
   const syncOutlineHeadings = useCallback((fallbackMarkdown?: string) => {
     const live = richEditorRef.current?.getHeadings();
@@ -246,6 +301,12 @@ export function Editor({
     }
     setOutlineHeadings(parseMarkdownHeadings(fallbackMarkdown ?? ""));
   }, []);
+  useEffect(
+    () => () => {
+      if (outlineTimerRef.current) clearTimeout(outlineTimerRef.current);
+    },
+    [],
+  );
   const jumpToOutlineHeading = useCallback((heading: EditorHeading) => {
     const ed = richEditorRef.current;
     if (!ed) return;
@@ -270,9 +331,12 @@ export function Editor({
       return;
     }
     const syncEditorUi = () => {
-      setCanUndo(formatEditor.can().undo());
-      setCanRedo(formatEditor.can().redo());
-      setEditorIsEmpty(formatEditor.isEmpty);
+      const nextUndo = formatEditor.can().undo();
+      const nextRedo = formatEditor.can().redo();
+      const nextEmpty = formatEditor.isEmpty;
+      setCanUndo((v) => (v === nextUndo ? v : nextUndo));
+      setCanRedo((v) => (v === nextRedo ? v : nextRedo));
+      setEditorIsEmpty((v) => (v === nextEmpty ? v : nextEmpty));
     };
     syncEditorUi();
     formatEditor.on("transaction", syncEditorUi);
@@ -292,14 +356,8 @@ export function Editor({
     setEditorZoomState(next);
     setEditorZoom(next);
   }, []);
-  const changeFontScale = useCallback((next: EditorFontScale) => {
-    setFontScaleState(next);
-    setEditorFontScale(next);
-  }, []);
-  const changeViewWidth = useCallback((next: EditorViewWidth) => {
-    setViewWidthState(next);
-    setEditorViewWidth(next);
-  }, []);
+  const changeFontScale = place.changeFontScale;
+  const changeViewWidth = place.changeViewWidth;
   const openNavigateDrawer = useCallback((panel: OutlineDrawerPanel) => {
     setOutlinePanel(panel);
     setOutlineOpen(true);
@@ -505,8 +563,7 @@ export function Editor({
         const res = await updateExpiry({
           slug,
           burn_mode: mode,
-          ksp: isKnp,
-                  });
+        });
         setBurnMode(res.burn_mode);
         setExpiresAt(res.expires_at);
         toast.success("Lifetime updated");
@@ -526,6 +583,67 @@ export function Editor({
     setIsDirty(true);
     setStatus((s) => (s === "saving" ? "saving" : "dirty"));
   }, []);
+
+  const handleUploadImage = useCallback(
+    async (file: File) => {
+      if (!canEdit) return null;
+      if (!file.type.startsWith("image/")) return null;
+      if (file.size > 20 * 1024 * 1024) {
+        toast.error("Max 20 MB per file");
+        return null;
+      }
+      if (cryptoSession.kind === "plaintext") {
+        return readFileAsDataUrl(file);
+      }
+      if (cryptoSession.kind !== "knp") {
+        toast.error("Unlock this note to paste images");
+        return null;
+      }
+      const limit = maxAttachmentsPerSheet(billing.planTier);
+      if (limit !== null && activeAttachmentIds.size >= limit) {
+        toast.error(
+          limit === 1
+            ? "Free plan allows 1 attachment per sheet"
+            : `Maximum ${formatAttachmentLimit(billing.planTier)} attachments per sheet on your plan`,
+        );
+        return null;
+      }
+      const toastId = toast.loading("Uploading image…");
+      try {
+        const { id, url, storagePath, session } = await uploadEncryptedAttachment({
+          file,
+          slug,
+          crypto: cryptoSession,
+        });
+        if (session) setCryptoSession({ kind: "knp", session });
+        setWorkbook((prev) => {
+          try {
+            return addSheetAttachment(prev, activeSheetId, id);
+          } catch {
+            return prev;
+          }
+        });
+        primeKodamaBlobCache(slug, id, file, storagePath);
+        invalidateAttachmentList(slug, queryClient);
+        markDirty();
+        toast.success("Image added", { id: toastId });
+        return url;
+      } catch (e) {
+        toast.error((e as Error).message, { id: toastId });
+        return null;
+      }
+    },
+    [
+      activeAttachmentIds.size,
+      activeSheetId,
+      billing.planTier,
+      canEdit,
+      cryptoSession,
+      markDirty,
+      queryClient,
+      slug,
+    ],
+  );
 
   const markClean = useCallback(() => {
     isDirtyRef.current = false;
@@ -556,10 +674,14 @@ export function Editor({
     }): Promise<boolean> => {
       const run = async (): Promise<boolean> => {
         if (!canSave) return false;
-        const payload =
+        let payload =
           opts?.skipFlush && opts.workbook != null
             ? opts.workbook
             : flushWorkbook(opts?.workbook);
+        if (cryptoSession.kind === "knp") {
+          payload = await purgeUnusedAttachments(slug, payload, queryClient);
+          workbookRef.current = payload;
+        }
         let plaintext: string;
         try {
           plaintext = serializeWorkbook(payload);
@@ -586,9 +708,20 @@ export function Editor({
             setUpdatedAt(new Date().toISOString());
             return true;
           }
-          const next = await saveKnpWorkbook(cryptoSession, payload);
+          if (cryptoSession.kind !== "knp") return false;
+          let nextPayload = payload;
+          if (cryptoSession.session.role === "owner" || cryptoSession.session.role === "editor") {
+            nextPayload = await persistPublicSheets({
+              slug,
+              workbook: payload,
+              session: cryptoSession.session,
+            });
+          }
+          const next = await saveKnpWorkbook(cryptoSession, nextPayload);
           setCryptoSession(next);
-          markSaved(plaintext, payload, generationAtSaveStart);
+          workbookRef.current = nextPayload;
+          setWorkbook(nextPayload);
+          markSaved(serializeWorkbook(nextPayload, { validate: false }), nextPayload, generationAtSaveStart);
           setUpdatedAt(new Date().toISOString());
           return true;
         } catch (e) {
@@ -608,7 +741,7 @@ export function Editor({
         }
       }
     },
-    [cryptoSession, canSave, flushWorkbook, markSaved, slug],
+    [cryptoSession, canSave, flushWorkbook, markSaved, queryClient, slug],
   );
 
   const prepareForLock = useCallback(async () => {
@@ -734,19 +867,28 @@ export function Editor({
 
   const handleMarkdownChange = useCallback(
     (markdown: string) => {
-      markDirty();
-      setWorkbook((prev) => updateActiveSheetMarkdown(prev, activeSheetId, markdown));
-      queueMicrotask(() => syncOutlineHeadings(markdown));
+      startTransition(() => {
+        setWorkbook((prev) => {
+          if (getActiveSheetMarkdown(prev, activeSheetId) === markdown) return prev;
+          return updateActiveSheetMarkdown(prev, activeSheetId, markdown);
+        });
+      });
+      if (outlineTimerRef.current) clearTimeout(outlineTimerRef.current);
+      outlineTimerRef.current = setTimeout(() => {
+        outlineTimerRef.current = null;
+        syncOutlineHeadings(markdown);
+      }, 200);
     },
-    [activeSheetId, markDirty, syncOutlineHeadings],
+    [activeSheetId, syncOutlineHeadings],
   );
 
   const handleViewMarkdownChange = useCallback(
     (markdown: string) => {
       setViewMarkdown(markdown);
+      markDirty();
       handleMarkdownChange(markdown);
     },
-    [handleMarkdownChange],
+    [handleMarkdownChange, markDirty],
   );
 
   const handleEditorBaseline = useCallback(
@@ -762,7 +904,7 @@ export function Editor({
         if (updated !== prior) setWorkbook(updated);
         editorSyncedRef.current = true;
         if (!isDirtyRef.current) {
-          lastSavedRef.current = serializeWorkbook(updated);
+          lastSavedRef.current = serializeWorkbook(updated, { validate: false });
           setStatus((s) => (s === "saved" ? "saved" : "idle"));
         }
       } catch {
@@ -772,21 +914,26 @@ export function Editor({
     [activeSheetId],
   );
 
-  const handleAddSheet = useCallback(() => {
-    try {
-      const wasSingle = workbook.sheets.length === 1;
-      const next = addSheet(workbook);
-      const newSheet = getOrderedSheets(next).at(-1)!;
-      markDirty();
-      setWorkbook(next);
-      void switchSheet(newSheet.sheet_id, next);
-      if (wasSingle) {
-        toast.message("A new trail opened in the grove.");
+  const handleAddSheet = useCallback(
+    (visibility: TabVisibility = "private") => {
+      try {
+        const wasSingle = workbook.sheets.length === 1;
+        const next = addSheet(workbook, { visibility });
+        const newSheet = getOrderedSheets(next).at(-1)!;
+        markDirty();
+        setWorkbook(next);
+        void switchSheet(newSheet.sheet_id, next);
+        if (wasSingle) {
+          toast.message("A new trail opened in the grove.");
+        } else if (visibility === "public") {
+          toast.message("New public page — anyone with the link can read it after save.");
+        }
+      } catch (e) {
+        toast.error(e instanceof WorkbookError ? "Maximum sheets reached" : (e as Error).message);
       }
-    } catch (e) {
-      toast.error(e instanceof WorkbookError ? "Maximum sheets reached" : (e as Error).message);
-    }
-  }, [markDirty, switchSheet, workbook]);
+    },
+    [markDirty, switchSheet, workbook],
+  );
 
   const handleRenameSheet = useCallback(
     (sheetId: string, title: string) => {
@@ -818,12 +965,13 @@ export function Editor({
       }
       const noteTitle = template.id === "blank" ? "" : template.label;
       handleRenameSheet(activeSheetId, noteTitle);
+      markDirty();
       richEditorRef.current?.setMarkdown(markdown);
       handleMarkdownChange(markdown);
       toast.success(template.id === "blank" ? "Blank note" : `${template.label} applied`);
       queueMicrotask(() => richEditorRef.current?.focus());
     },
-    [activeSheetId, canEdit, handleMarkdownChange, handleRenameSheet],
+    [activeSheetId, canEdit, handleMarkdownChange, handleRenameSheet, markDirty],
   );
 
   const handleDeleteSheet = useCallback(
@@ -843,8 +991,7 @@ export function Editor({
               deleteAttachment({
                 slug,
                 attachment_id,
-                ksp: isKnp,
-                              }),
+              }),
             ),
           );
           const failed = results.filter((r) => r.status === "rejected").length;
@@ -855,6 +1002,19 @@ export function Editor({
         }
         const focusId =
           sheetId === activeSheetId ? pickAdjacentSheetId(wb, sheetId) : activeSheetId;
+        const removing = getSheetById(wb, sheetId);
+        if (
+          removing &&
+          isPublicSheet(removing) &&
+          cryptoSession.kind === "knp" &&
+          canSignKnpWorkbook(cryptoSession)
+        ) {
+          await deletePublicTab({
+            slug,
+            tabId: sheetId,
+            session: cryptoSession.session,
+          });
+        }
         const next = deleteSheet(wb, sheetId);
         markDirty();
         setWorkbook(next);
@@ -865,7 +1025,71 @@ export function Editor({
         toast.error((e as Error).message);
       }
     },
-    [activeSheetId, canSave, isKnp, markDirty, queryClient, slug, switchSheet, workbook],
+    [activeSheetId, canSave, cryptoSession, isKnp, markDirty, queryClient, slug, switchSheet, workbook],
+  );
+
+  const handlePublishSheet = useCallback(
+    async (sheetId: string) => {
+      const sheet = getSheetById(workbookRef.current, sheetId);
+      if (!sheet || cryptoSession.kind !== "knp") return;
+      if (!readKnpSecrets(slug)?.isOwner) {
+        toast.error("Only the owner can make a page public.");
+        return;
+      }
+      if (!canMakeSheetPublic(sheet)) {
+        toast.error("Remove encrypted images before making this page public.");
+        return;
+      }
+      try {
+        const next = setSheetVisibility(workbookRef.current, sheetId, "public");
+        const published = getSheetById(next, sheetId);
+        if (!published) return;
+        await publishTab({
+          slug,
+          sheet: published,
+          displayOrder: published.order,
+          session: cryptoSession.session,
+        });
+        const saved = await saveKnpWorkbook(cryptoSession, next);
+        setCryptoSession(saved);
+        workbookRef.current = next;
+        setWorkbook(next);
+        markSaved(serializeWorkbook(next, { validate: false }), next, editGenerationRef.current);
+        toast.success("This page is public.");
+      } catch (e) {
+        toast.error((e as Error).message);
+      }
+    },
+    [cryptoSession, slug],
+  );
+
+  const handleUnpublishSheet = useCallback(
+    async (sheetId: string) => {
+      const sheet = getSheetById(workbookRef.current, sheetId);
+      if (!sheet || cryptoSession.kind !== "knp") return;
+      if (!readKnpSecrets(slug)?.isOwner) {
+        toast.error("Only the owner can make a page private.");
+        return;
+      }
+      if (!window.confirm(UNPUBLISH_WARNING)) return;
+      try {
+        const next = setSheetVisibility(workbookRef.current, sheetId, "private");
+        const saved = await saveKnpWorkbook(cryptoSession, next);
+        setCryptoSession(saved);
+        await unpublishTab({
+          slug,
+          tabId: sheetId,
+          session: cryptoSession.session,
+        });
+        workbookRef.current = next;
+        setWorkbook(next);
+        markSaved(serializeWorkbook(next, { validate: false }), next, editGenerationRef.current);
+        toast.success("This page is private again.");
+      } catch (e) {
+        toast.error((e as Error).message);
+      }
+    },
+    [cryptoSession, slug],
   );
 
   const handleReorderSheets = useCallback(
@@ -1090,7 +1314,18 @@ export function Editor({
           className="border-b border-border/60 bg-muted/30 px-4 py-2 text-center text-xs font-light text-muted-foreground"
           role="status"
         >
-          Read-only — unlock with the place password on this device to edit or share.
+          {isPublicOnly
+            ? "Public pages — no password needed."
+            : "Read-only — unlock with the place password on this device to edit or share."}
+          {onUnlockPrivate && (
+            <button
+              type="button"
+              onClick={onUnlockPrivate}
+              className="ml-3 underline underline-offset-4 hover:text-foreground"
+            >
+              Unlock
+            </button>
+          )}
         </div>
       )}
       <header data-editor-chrome="true" className={editorHeaderShellClass()}>
@@ -1337,7 +1572,7 @@ export function Editor({
                       className="flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-light transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-40"
                       title={
                         editorCapabilityExport
-                          ? "Copy KSP editor capability JSON for secure sharing"
+                          ? "Copy KNP editor capability JSON for secure sharing"
                           : "Unlock with your password to export editor capability"
                       }
                     >
@@ -1396,6 +1631,15 @@ export function Editor({
               onReload={handleReload}
               noteAppearance={noteAppearance}
               onChangeNoteAppearance={changeNoteAppearance}
+              placeSettings={place.settings}
+              onPlaceFontChange={place.changeFont}
+              onPlaceLineHeightChange={place.changeLineHeight}
+              onPlaceParagraphSpacingChange={place.changeParagraphSpacing}
+              canChangePlaceLook={canChangePlaceLook}
+              payment={billing.payment}
+              planTier={billing.planTier}
+              paymentSaving={billing.saving}
+              onSavePayment={billing.savePayment}
               onLockNow={onLock ? () => void handleLockNow("manual") : undefined}
               onOpenChange={setMoreMenuOpen}
             />
@@ -1431,6 +1675,17 @@ export function Editor({
           onChangeSaveMode={changeSaveMode}
           noteAppearance={noteAppearance}
           onChangeNoteAppearance={changeNoteAppearance}
+          placeSettings={place.settings}
+          onPlaceFontChange={place.changeFont}
+          onFontScaleChange={changeFontScale}
+          onPlaceLineHeightChange={place.changeLineHeight}
+          onPlaceParagraphSpacingChange={place.changeParagraphSpacing}
+          onViewWidthChange={changeViewWidth}
+          canChangePlaceLook={canChangePlaceLook}
+          payment={billing.payment}
+          planTier={billing.planTier}
+          paymentSaving={billing.saving}
+          onSavePayment={billing.savePayment}
           onToggleFind={() => {
             setFindMode("find");
             setFindOpen((v) => !v);
@@ -1537,6 +1792,11 @@ export function Editor({
                       onAdd={handleAddSheet}
                       onRename={handleRenameSheet}
                       onDelete={(id) => void handleDeleteSheet(id)}
+                      canChangeVisibility={canChangeExpiry}
+                      onSetVisibility={(id, visibility) => {
+                        if (visibility === "public") void handlePublishSheet(id);
+                        else void handleUnpublishSheet(id);
+                      }}
                     />
                   </div>
                 )}
@@ -1561,6 +1821,7 @@ export function Editor({
                       <RichEditor
                         key={activeSheetId}
                         ref={richEditorRef}
+                        onDirty={markDirty}
                         initialContent={activeMarkdown}
                         onMarkdownChange={handleMarkdownChange}
                         onBaseline={handleEditorBaseline}
@@ -1568,6 +1829,7 @@ export function Editor({
                         crypto={cryptoSession}
                         canEdit={canEdit}
                         allowedAttachmentIds={activeAttachmentIds}
+                        onUploadImage={canEdit ? handleUploadImage : undefined}
                         focusMode={focus}
                         placeholder="Start writing…"
                         onEditorReady={onEditorReady}
@@ -1632,7 +1894,7 @@ export function Editor({
 
       <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
 
-      <DonateRibbon sessionWords={sessionWords} visits={visits} />
+      <DonateRibbon sessionWords={sessionWords} visits={visits} payment={billing.payment} />
 
       <UnsavedChangesDialog
         open={!!leavePrompt}

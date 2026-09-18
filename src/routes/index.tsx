@@ -1,14 +1,25 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 
 import { Hero } from "@/components/landing/hero";
 import { ProductMockup } from "@/components/landing/product-mockup";
 import { Reveal } from "@/components/site/reveal";
 import { NoteShell } from "@/components/site/note-shell";
-import { CryptoSpec } from "@/components/security/crypto-spec";
-import { ThreatModelFlow } from "@/components/security/threat-model-flow";
-import { VisibilityTable } from "@/components/security/visibility-table";
+
+const CryptoSpec = lazy(() =>
+  import("@/components/security/crypto-spec").then((m) => ({ default: m.CryptoSpec })),
+);
+const ThreatModelFlow = lazy(() =>
+  import("@/components/security/threat-model-flow").then((m) => ({
+    default: m.ThreatModelFlow,
+  })),
+);
+const VisibilityTable = lazy(() =>
+  import("@/components/security/visibility-table").then((m) => ({
+    default: m.VisibilityTable,
+  })),
+);
 import {
   Accordion,
   AccordionContent,
@@ -94,7 +105,9 @@ function Landing() {
             </div>
           </Reveal>
           <div className="mt-10">
-            <ThreatModelFlow />
+            <Suspense fallback={null}>
+              <ThreatModelFlow />
+            </Suspense>
           </div>
           <p className="mx-auto mt-8 max-w-lg text-center text-base text-muted-foreground sm:text-sm">
             <Link to="/security" className="text-foreground underline underline-offset-4 hover:text-primary">
@@ -121,7 +134,9 @@ function Landing() {
             </div>
           </Reveal>
           <div className="mx-auto mt-10 max-w-4xl">
-            <VisibilityTable />
+            <Suspense fallback={null}>
+              <VisibilityTable />
+            </Suspense>
           </div>
         </section>
 
@@ -137,7 +152,9 @@ function Landing() {
             </div>
           </Reveal>
           <div className="mt-10">
-            <CryptoSpec />
+            <Suspense fallback={null}>
+              <CryptoSpec />
+            </Suspense>
           </div>
           <p className="mx-auto mt-8 max-w-lg text-center text-base text-muted-foreground sm:text-sm">
             <Link to="/security" className="text-foreground underline underline-offset-4 hover:text-primary">

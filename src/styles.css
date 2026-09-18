@@ -1991,12 +1991,42 @@ html:not(.dark) .firefly {
 }
 
 .sheet-trailhead-item-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 13px;
   font-weight: 500;
   color: rgb(var(--foreground));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sheet-trailhead-grow-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.sheet-visibility-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sheet-visibility-badge--public {
+  background: rgb(var(--primary) / 0.12);
+  color: rgb(var(--primary));
+}
+
+.sheet-visibility-badge--private {
+  background: rgb(var(--muted-foreground) / 0.12);
+  color: rgb(var(--muted-foreground));
 }
 
 .sheet-trailhead-item-preview {
@@ -2794,19 +2824,25 @@ html:not(.dark) .firefly {
 /* TipTap live editor typography */
 .tiptap,
 .ProseMirror {
-  font-family: var(--font-serif);
+  font-family: var(--note-font-family, var(--font-serif));
   font-size: calc(17px * var(--editor-font-scale, 1));
   font-weight: 300;
-  line-height: 1.8;
+  line-height: var(--note-line-height, 1.8);
+  letter-spacing: calc(var(--note-letter-spacing, 0) * 1em);
   color: var(--note-fg, rgb(var(--foreground)));
   caret-color: var(--note-fg, rgb(var(--foreground)));
+}
+
+.tiptap p,
+.ProseMirror p {
+  margin-block: var(--note-paragraph-spacing, 0.75em);
 }
 
 @media (min-width: 640px) {
   .tiptap,
   .ProseMirror {
     font-size: calc(18px * var(--editor-font-scale, 1));
-    line-height: 1.82;
+    line-height: var(--note-line-height, 1.82);
   }
 }
 

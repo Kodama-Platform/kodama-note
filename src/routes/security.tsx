@@ -39,8 +39,8 @@ function SecurityPage() {
           </h1>
           <p className="mt-4 text-base font-light leading-relaxed text-muted-foreground">
             <strong className="font-medium text-foreground">No.</strong> Page contents are encrypted in
-            your browser before upload. Kodama stores ciphertext we cannot decrypt without your
-            password — and we never receive your password.
+            your browser before upload. Kodama stores ciphertext and public metadata we cannot
+            decrypt. Unlock uses your password or a share capability — we never receive either.
           </p>
         </Reveal>
 

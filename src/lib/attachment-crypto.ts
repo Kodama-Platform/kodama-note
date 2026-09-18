@@ -6,6 +6,8 @@
 import {
   base64ToBytes,
   bytesToBase64,
+  clearBytes,
+  utf8Encode,
   type AttachmentTransportManifest,
   type EncryptedChunk,
   type KeyHandle,
@@ -18,8 +20,10 @@ import {
   serializeWrappedKey,
 } from "@/lib/note-protocol";
 import { composeKodamaNoteApp } from "@/lib/security-bootstrap";
+import { deriveReaderWrapKeyBytes } from "@/lib/note-protocol/wrap-aad";
 import type { AttachmentRow } from "@/lib/pages";
 import { stripPlaceVersion } from "@/lib/attachment-meta";
+import { toBufferSource } from "@/lib/crypto-utils";
 
 type StoredChunk = {
   index: number;
@@ -33,7 +37,7 @@ type AttachmentPackageV2 = {
   v: 2;
   protocol: "knp-1";
   attachmentId: string;
-  filename: string;
+  filename?: string;
   mime: string;
   wrappedFileKey: unknown;
   transportManifest: unknown;
@@ -141,6 +145,66 @@ async function wrapFileKeyUnderCek(
   });
 }
 
+async function encryptFilenameUnderCek(
+  contentKey: KeyHandle,
+  filename: string,
+  attachmentId: string,
+): Promise<{ ciphertext: string; iv: string }> {
+  const { security } = composeKodamaNoteApp();
+  const cekBytes = await security.keys.exportSymmetricKey(contentKey);
+  let keyBytes: Uint8Array;
+  try {
+    keyBytes = await deriveReaderWrapKeyBytes(cekBytes, "filename", attachmentId);
+  } finally {
+    clearBytes(cekBytes);
+  }
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    toBufferSource(keyBytes),
+    "AES-GCM",
+    false,
+    ["encrypt"],
+  );
+  clearBytes(keyBytes);
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    cryptoKey,
+    utf8Encode(filename),
+  );
+  return { ciphertext: bytesToBase64(new Uint8Array(ct)), iv: bytesToBase64(iv) };
+}
+
+async function decryptFilenameUnderCek(
+  contentKey: KeyHandle,
+  filenameCiphertext: string,
+  filenameIv: string,
+  attachmentId: string,
+): Promise<string> {
+  const { security } = composeKodamaNoteApp();
+  const cekBytes = await security.keys.exportSymmetricKey(contentKey);
+  let keyBytes: Uint8Array;
+  try {
+    keyBytes = await deriveReaderWrapKeyBytes(cekBytes, "filename", attachmentId);
+  } finally {
+    clearBytes(cekBytes);
+  }
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    toBufferSource(keyBytes),
+    "AES-GCM",
+    false,
+    ["decrypt"],
+  );
+  clearBytes(keyBytes);
+  const pt = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: toBufferSource(base64ToBytes(filenameIv)) },
+    cryptoKey,
+    toBufferSource(base64ToBytes(filenameCiphertext)),
+  );
+  return new TextDecoder().decode(pt);
+}
+
 async function unwrapFileKey(
   contentKey: KeyHandle,
   wrapped: unknown,
@@ -168,6 +232,8 @@ export async function encryptAttachmentPayload(
   filename_iv: string;
   mime: string;
   attachmentId: string;
+  fileKeyB64: string;
+  transportManifestB64: string;
 }> {
   if (crypto.kind !== "knp") {
     throw new Error("Attachments require a KNP-1 session");
@@ -192,19 +258,26 @@ export async function encryptAttachmentPayload(
     v: 2,
     protocol: "knp-1",
     attachmentId,
-    filename: args.filename,
     mime: args.mime,
     wrappedFileKey: serializeWrappedKey(wrappedFileKey),
     transportManifest: serializeTransportManifest(manifest),
     chunks: serializeChunks(chunks),
   };
+  const nameEnc = await encryptFilenameUnderCek(session.contentKey, args.filename, attachmentId);
+  const fileKeyBytes = await composeKodamaNoteApp().security.keys.exportSymmetricKey(fileKey);
+  const fileKeyB64 = bytesToBase64(fileKeyBytes);
+  clearBytes(fileKeyBytes);
   return {
     ciphertext: new TextEncoder().encode(JSON.stringify(pkg)),
     iv: "",
-    filename_ciphertext: bytesToBase64(new TextEncoder().encode(args.filename)),
-    filename_iv: "",
+    filename_ciphertext: nameEnc.ciphertext,
+    filename_iv: nameEnc.iv,
     mime: `${args.mime}; knp=1; attachment-id=${attachmentId}`,
     attachmentId,
+    fileKeyB64,
+    transportManifestB64: bytesToBase64(
+      new TextEncoder().encode(JSON.stringify(serializeTransportManifest(manifest))),
+    ),
   };
 }
 
@@ -263,11 +336,22 @@ export async function decryptAttachmentFilename(
   fallback = "attachment",
 ): Promise<string> {
   if (crypto.kind !== "knp") return fallback;
-  if (row.filename_ciphertext) {
+  if (row.filename_ciphertext && row.filename_iv) {
     try {
-      return new TextDecoder().decode(base64ToBytes(row.filename_ciphertext));
+      const attachmentId =
+        row.mime.match(/attachment-id=([^;]+)/i)?.[1]?.trim() ?? "attachment";
+      return await decryptFilenameUnderCek(
+        crypto.session.contentKey,
+        row.filename_ciphertext,
+        row.filename_iv,
+        attachmentId,
+      );
     } catch {
-      return fallback;
+      try {
+        return new TextDecoder().decode(base64ToBytes(row.filename_ciphertext));
+      } catch {
+        return fallback;
+      }
     }
   }
   return fallback;

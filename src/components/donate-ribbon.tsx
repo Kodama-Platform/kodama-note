@@ -1,13 +1,23 @@
 import { useEffect, useState } from "react";
 import { Heart, X } from "lucide-react";
 
+import { donateDestinationUrl, type NotePlacePaymentPublic } from "@/lib/note-payment";
+
 const DISMISS_KEY = "kodama-donate-dismissed-v1";
 const VISITS_KEY = "kodama-visits";
 
-function donateUrl(): string {
+function fallbackDonateUrl(): string {
   const v = (import.meta as { env?: Record<string, string | undefined> }).env
     ?.VITE_DONATE_URL;
   return v || "https://ko-fi.com/";
+}
+
+function resolveDonateUrl(payment?: NotePlacePaymentPublic | null): string | null {
+  if (payment) {
+    if (!payment.donate.visible) return null;
+    return donateDestinationUrl(payment) ?? fallbackDonateUrl();
+  }
+  return fallbackDonateUrl();
 }
 
 export function useVisitCount(slug: string): number {
@@ -29,20 +39,27 @@ export function useVisitCount(slug: string): number {
 export function DonateRibbon({
   sessionWords,
   visits,
+  payment,
 }: {
   sessionWords: number;
   visits: number;
+  payment?: NotePlacePaymentPublic | null;
 }) {
+  const href = resolveDonateUrl(payment);
   const [show, setShow] = useState(false);
 
   useEffect(() => {
+    if (!href) {
+      setShow(false);
+      return;
+    }
     try {
       if (localStorage.getItem(DISMISS_KEY)) return;
     } catch {
       return;
     }
-    if (sessionWords >= 500 || visits >= 3) setShow(true);
-  }, [sessionWords, visits]);
+    if (payment?.access === "donation" || sessionWords >= 500 || visits >= 3) setShow(true);
+  }, [href, payment?.access, sessionWords, visits]);
 
   const dismiss = () => {
     try {
@@ -53,7 +70,7 @@ export function DonateRibbon({
     setShow(false);
   };
 
-  if (!show) return null;
+  if (!show || !href) return null;
   return (
     <div className="fixed inset-x-3 bottom-14 z-30 mx-auto max-w-xl sm:inset-x-auto sm:right-5">
       <div className="note-card !p-3 shadow-card">
@@ -68,7 +85,7 @@ export function DonateRibbon({
             </p>
             <div className="mt-2 flex items-center gap-2">
               <a
-                href={donateUrl()}
+                href={href}
                 target="_blank"
                 rel="noreferrer noopener"
                 onClick={dismiss}

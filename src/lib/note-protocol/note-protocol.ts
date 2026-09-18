@@ -14,6 +14,7 @@ import type {
   WrappedKey,
 } from "@kodama.page/core";
 import {
+  DEFAULT_ARGON2ID_PARAMS,
   TEST_ARGON2ID_PARAMS,
   base64ToBytes,
   bytesToBase64,
@@ -38,8 +39,10 @@ import {
 import { noteContentContext, noteManifestContext } from "./context";
 import type { KnpPlaceMeta, NoteDeliveryClient } from "./delivery";
 import {
+  hashEditorCertificate,
   issueEditorCertificate,
   signPolicy,
+  verifyEditorCertificate,
   verifyPolicySignature,
   type NotePolicyBundle,
 } from "./policy";
@@ -56,8 +59,13 @@ import {
   verifyStateHeaderSignature,
   type SignedState,
 } from "./state";
-import { encodeWrapAad, ownerCapabilityId } from "./wrap-aad";
-import { toBufferSource } from "@/lib/crypto";
+import {
+  deriveOwnerWrapKeyBytes,
+  deriveReaderWrapKeyBytes,
+  encodeWrapAad,
+  ownerCapabilityId,
+} from "./wrap-aad";
+import { toBufferSource } from "@/lib/crypto-utils";
 
 export type NoteRole = "owner" | "editor" | "reader";
 
@@ -85,7 +93,13 @@ export type NoteSession = {
   readonly ownerWrappedCek: WrappedKey;
   readonly ownerWrappedSignSeed: WrappedKey;
   readonly checkpoint: NoteCheckpoint | null;
+  /** Last accepted attachment manifest (bound into the next signed state). */
+  readonly manifestDoc: NoteAttachmentManifestDoc;
 };
+
+function defaultArgonParams() {
+  return import.meta.env.MODE === "test" ? TEST_ARGON2ID_PARAMS : DEFAULT_ARGON2ID_PARAMS;
+}
 
 export type ReaderCapability = {
   readonly v: 1;
@@ -246,6 +260,91 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
     });
   }
 
+  async function importOwnerWrapKey(
+    masterBytes: Uint8Array,
+    placeId: string,
+    noteId: string,
+  ): Promise<KeyHandle> {
+    const derived = await deriveOwnerWrapKeyBytes(masterBytes, placeId, noteId);
+    try {
+      return security.keys.importSymmetricKey("wrapping", derived);
+    } finally {
+      clearBytes(derived);
+    }
+  }
+
+  async function importReaderWrapKey(
+    readerSecret: Uint8Array,
+    noteId: string,
+    capabilityId: string,
+  ): Promise<KeyHandle> {
+    const derived = await deriveReaderWrapKeyBytes(readerSecret, noteId, capabilityId);
+    try {
+      return security.keys.importSymmetricKey("wrapping", derived);
+    } finally {
+      clearBytes(derived);
+    }
+  }
+
+  async function assertAcceptedState(input: {
+    readonly meta: KnpPlaceMeta;
+    readonly ownerPublicKey: PublicKeyBytes;
+    readonly noteEnvelope: Uint8Array;
+    readonly manifestEnvelope: Uint8Array;
+    readonly requireEditorKeyB64?: string;
+  }): Promise<void> {
+    const { meta, ownerPublicKey } = input;
+    if (meta.protocol !== KNP_PROTOCOL || meta.suite !== KNP_SUITE) {
+      throw new Error("unsupported protocol or suite");
+    }
+    if (meta.policy.policy.minimumProtocol !== KNP_PROTOCOL) {
+      throw new Error("protocol downgrade");
+    }
+    const policyOk = await verifyPolicySignature(security, meta.policy.policy, ownerPublicKey);
+    if (!policyOk) throw new Error("invalid owner policy signature");
+
+    let writerPublicKey: PublicKeyBytes | undefined;
+    if (await verifyStateHeaderSignature(security, meta.state.header, ownerPublicKey)) {
+      writerPublicKey = ownerPublicKey;
+    } else {
+      for (const cert of meta.policy.editorCertificates) {
+        const certOk = await verifyEditorCertificate(security, cert, ownerPublicKey);
+        if (!certOk) throw new Error("invalid editor certificate");
+        const certHash = await hashEditorCertificate(security, cert);
+        if (!meta.policy.policy.activeEditorCertificateHashesB64.includes(certHash)) {
+          throw new Error("editor certificate is not active");
+        }
+        if (cert.accessEpoch !== meta.epoch) {
+          throw new Error("editor certificate epoch mismatch");
+        }
+        const pub: PublicKeyBytes = {
+          suite: "KSC_V1",
+          algorithm: "Ed25519",
+          bytes: base64ToBytes(cert.editorPublicKeyB64),
+        };
+        if (await verifyStateHeaderSignature(security, meta.state.header, pub)) {
+          writerPublicKey = pub;
+          break;
+        }
+      }
+    }
+    if (!writerPublicKey) throw new Error("invalid state signature");
+
+    if ((await hashBytesB64(input.noteEnvelope)) !== meta.state.header.ciphertextHashB64) {
+      throw new Error("ciphertext hash mismatch");
+    }
+    if ((await hashBytesB64(input.manifestEnvelope)) !== meta.state.header.manifestHashB64) {
+      throw new Error("manifest hash mismatch");
+    }
+
+    if (input.requireEditorKeyB64) {
+      const active = meta.policy.editorCertificates.some(
+        (c) => c.editorPublicKeyB64 === input.requireEditorKeyB64,
+      );
+      if (!active) throw new Error("editor capability is not in the current policy");
+    }
+  }
+
   async function encryptWorkbookState(input: {
     readonly contentKey: KeyHandle;
     readonly placeId: string;
@@ -331,18 +430,17 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
 
       const { masterKey, protectedKey } = await security.passwords.createProtectedMasterKey({
         password: input.password,
-        params: input.argonParams ?? TEST_ARGON2ID_PARAMS,
+        params: input.argonParams ?? defaultArgonParams(),
       });
 
       const ownerPair = await security.keys.generateSigningKey();
       const ownerId = await ownerIdFromPublicKey(ownerPair.publicKey);
       const contentKey = await security.keys.generateSymmetricKey("content-encryption");
 
-      // Derive owner wrapping key material from master via export+import as wrapping purpose.
       const masterBytes = await security.keys.exportSymmetricKey(masterKey);
       let ownerWrapKey: KeyHandle;
       try {
-        ownerWrapKey = await security.keys.importSymmetricKey("wrapping", masterBytes);
+        ownerWrapKey = await importOwnerWrapKey(masterBytes, placeId, noteId);
       } finally {
         clearBytes(masterBytes);
       }
@@ -465,6 +563,7 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
         ownerWrappedCek,
         ownerWrappedSignSeed,
         checkpoint,
+        manifestDoc: emptyManifest,
       };
       return { session, workbook };
     },
@@ -487,7 +586,11 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
       const masterBytes = await security.keys.exportSymmetricKey(masterKey);
       let ownerWrapKey: KeyHandle;
       try {
-        ownerWrapKey = await security.keys.importSymmetricKey("wrapping", masterBytes);
+        ownerWrapKey = await importOwnerWrapKey(
+          masterBytes,
+          meta.state.header.placeId,
+          meta.state.header.noteId,
+        );
       } finally {
         clearBytes(masterBytes);
       }
@@ -525,24 +628,9 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
         clearBytes(ownerSeedBytes);
       }
 
-      const policyOk = await verifyPolicySignature(security, meta.policy.policy, ownerPublicKey);
-      if (!policyOk) throw new Error("invalid owner policy signature");
-
-      const stateOk = await verifyStateHeaderSignature(
-        security,
-        meta.state.header,
-        ownerPublicKey,
-      );
-      if (!stateOk) throw new Error("invalid state signature");
-
       const noteEnvelope = base64ToBytes(meta.state.noteEnvelopeB64);
       const manifestEnvelope = base64ToBytes(meta.state.manifestEnvelopeB64);
-      if ((await hashBytesB64(noteEnvelope)) !== meta.state.header.ciphertextHashB64) {
-        throw new Error("ciphertext hash mismatch");
-      }
-      if ((await hashBytesB64(manifestEnvelope)) !== meta.state.header.manifestHashB64) {
-        throw new Error("manifest hash mismatch");
-      }
+      await assertAcceptedState({ meta, ownerPublicKey, noteEnvelope, manifestEnvelope });
 
       const checkpoint = loadCheckpoint(meta.state.header.noteId);
       assertCheckpointAccepts({
@@ -587,6 +675,7 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
         ownerWrappedCek,
         ownerWrappedSignSeed,
         checkpoint: nextCheckpoint,
+        manifestDoc: opened.manifestDoc,
       };
       return { session, workbook: opened.workbook };
     },
@@ -595,6 +684,7 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
       readonly session: NoteSession;
       readonly workbook: WorkbookPayload;
       readonly manifestDoc?: NoteAttachmentManifestDoc;
+      readonly operation?: string;
     }): Promise<NoteSession> {
       const { session } = input;
       const writerKey = session.ownerSignKey ?? session.editorSignKey;
@@ -602,7 +692,7 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
       if (session.role === "reader") throw new Error("readers cannot save");
 
       const newVersion = session.version + 1;
-      const manifestDoc = input.manifestDoc ?? { v: 1 as const, files: [] };
+      const manifestDoc = input.manifestDoc ?? session.manifestDoc ?? { v: 1 as const, files: [] };
       const { noteEnvelope, manifestEnvelope } = await encryptWorkbookState({
         contentKey: session.contentKey,
         placeId: session.placeId,
@@ -621,7 +711,7 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
         policyHashB64: session.policy.policyHashB64,
         version: newVersion,
         previousStateHashB64: session.state.stateHashB64,
-        operation: "edit",
+        operation: input.operation ?? "edit",
         writerKeyId:
           session.role === "owner" ? `owner:${session.ownerId}` : `editor:${writerKey.id}`,
         noteEnvelope,
@@ -669,7 +759,7 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
       };
       saveCheckpoint(checkpoint);
 
-      return { ...session, version: newVersion, state, checkpoint };
+      return { ...session, version: newVersion, state, checkpoint, manifestDoc };
     },
 
     async issueReaderCapability(session: NoteSession): Promise<ReaderCapability> {
@@ -677,8 +767,9 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
       const secretBytes = await security.keys.exportSymmetricKey(readerSecret);
       const capabilityId = crypto.randomUUID();
       try {
+        const wrapKey = await importReaderWrapKey(secretBytes, OBJECT_ID_WORKBOOK, capabilityId);
         const wrappedCek = await wrapCekUnderKey({
-          wrappingKey: readerSecret,
+          wrappingKey: wrapKey,
           contentKey: session.contentKey,
           placeId: session.placeId,
           noteId: OBJECT_ID_WORKBOOK,
@@ -778,7 +869,11 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
       const secretBytes = base64ToBytes(input.capability.readerSecretB64);
       let wrapKey: KeyHandle;
       try {
-        wrapKey = await security.keys.importSymmetricKey("wrapping", secretBytes);
+        wrapKey = await importReaderWrapKey(
+          secretBytes,
+          input.capability.noteId,
+          input.capability.capabilityId,
+        );
       } finally {
         clearBytes(secretBytes);
       }
@@ -802,6 +897,7 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
       };
       const noteEnvelope = base64ToBytes(meta.state.noteEnvelopeB64);
       const manifestEnvelope = base64ToBytes(meta.state.manifestEnvelopeB64);
+      await assertAcceptedState({ meta, ownerPublicKey, noteEnvelope, manifestEnvelope });
       const opened = await openWorkbookState({
         contentKey,
         placeId: meta.state.header.placeId,
@@ -810,6 +906,15 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
         noteEnvelope,
         manifestEnvelope,
       });
+
+      const nextCheckpoint: NoteCheckpoint = {
+        noteId: meta.state.header.noteId,
+        epoch: meta.epoch,
+        version: meta.version,
+        stateHashB64: meta.state.stateHashB64,
+        policyHashB64: meta.policy.policyHashB64,
+      };
+      saveCheckpoint(nextCheckpoint);
 
       const session: NoteSession = {
         role: "reader",
@@ -825,7 +930,8 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
         protectedMasterKey: reviveProtectedMasterKey(meta.protected_master_key),
         ownerWrappedCek: reviveWrappedKey(meta.owner_wrapped_cek),
         ownerWrappedSignSeed: reviveWrappedKey(meta.owner_wrapped_sign_seed),
-        checkpoint: loadCheckpoint(meta.state.header.noteId),
+        checkpoint: nextCheckpoint,
+        manifestDoc: opened.manifestDoc,
       };
       return { session, workbook: opened.workbook };
     },
@@ -840,12 +946,18 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
       });
       const seed = base64ToBytes(input.capability.editorPrivateKeyB64);
       let editorSignKey: KeyHandle;
+      let editorPublicKeyB64: string;
       try {
         const imported = await security.keys.importSigningSeed(seed);
         editorSignKey = imported.privateKey;
+        editorPublicKeyB64 = bytesToBase64(imported.publicKey.bytes);
       } finally {
         clearBytes(seed);
       }
+      const active = session.policy.editorCertificates.some(
+        (c) => c.editorPublicKeyB64 === editorPublicKeyB64,
+      );
+      if (!active) throw new Error("editor capability is not in the current policy");
       return {
         workbook,
         session: {
@@ -853,6 +965,16 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
           role: "editor",
           editorSignKey,
         },
+      };
+    },
+
+    rememberAttachment(
+      session: NoteSession,
+      file: NoteAttachmentManifestDoc["files"][number],
+    ): NoteSession {
+      return {
+        ...session,
+        manifestDoc: { v: 1, files: [...session.manifestDoc.files, file] },
       };
     },
 
@@ -935,16 +1057,23 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
       readonly oldPassword: string;
       readonly newPassword: string;
     }): Promise<NoteSession> {
+      if (input.session.role !== "owner" || !input.session.ownerSignKey) {
+        throw new Error("only owner can change the password");
+      }
       const { masterKey, protectedKey } = await security.passwords.changePassword({
         oldPassword: input.oldPassword,
         newPassword: input.newPassword,
         protectedKey: input.session.protectedMasterKey,
-        params: TEST_ARGON2ID_PARAMS,
+        params: defaultArgonParams(),
       });
       const masterBytes = await security.keys.exportSymmetricKey(masterKey);
       let ownerWrapKey: KeyHandle;
       try {
-        ownerWrapKey = await security.keys.importSymmetricKey("wrapping", masterBytes);
+        ownerWrapKey = await importOwnerWrapKey(
+          masterBytes,
+          input.session.placeId,
+          OBJECT_ID_WORKBOOK,
+        );
       } finally {
         clearBytes(masterBytes);
       }
@@ -958,11 +1087,45 @@ export function createNoteProtocol(deps: NoteProtocolDeps) {
         role: "owner",
         ownerId: input.session.ownerId,
       });
-      return {
-        ...input.session,
-        protectedMasterKey: protectedKey,
-        ownerWrappedCek,
-      };
+      const seedBytes = await security.keys.exportSigningSeed(input.session.ownerSignKey);
+      let seedHandle: KeyHandle;
+      try {
+        seedHandle = await security.keys.importSymmetricKey("wrapping", seedBytes);
+      } finally {
+        clearBytes(seedBytes);
+      }
+      const ownerWrappedSignSeed = await wrapCekUnderKey({
+        wrappingKey: ownerWrapKey,
+        contentKey: seedHandle,
+        placeId: input.session.placeId,
+        noteId: OBJECT_ID_WORKBOOK,
+        epoch: input.session.epoch,
+        capabilityId: `owner-sign:${input.session.placeId}`,
+        role: "owner",
+        ownerId: input.session.ownerId,
+      });
+      const noteEnvelope = base64ToBytes(input.session.state.noteEnvelopeB64);
+      const manifestEnvelope = base64ToBytes(input.session.state.manifestEnvelopeB64);
+      const opened = await openWorkbookState({
+        contentKey: input.session.contentKey,
+        placeId: input.session.placeId,
+        epoch: input.session.epoch,
+        version: input.session.version,
+        noteEnvelope,
+        manifestEnvelope,
+      });
+      return this.saveState({
+        session: {
+          ...input.session,
+          protectedMasterKey: protectedKey,
+          ownerWrappedCek,
+          ownerWrappedSignSeed,
+          manifestDoc: opened.manifestDoc,
+        },
+        workbook: opened.workbook,
+        manifestDoc: opened.manifestDoc,
+        operation: "password-change",
+      });
     },
   };
 }

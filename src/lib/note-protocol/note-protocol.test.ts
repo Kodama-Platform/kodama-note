@@ -46,6 +46,13 @@ function memoryDelivery(): NoteDeliveryClient & {
         updatedAt: new Date().toISOString(),
       };
     },
+    async publishEncryptedAttachment() {
+      return { id: crypto.randomUUID(), created_at: new Date().toISOString() };
+    },
+    async deleteEncryptedAttachment() {},
+    async updateExpiry() {
+      return { burn_mode: "never", expires_at: null };
+    },
   };
 }
 
@@ -146,5 +153,51 @@ describe("KNP-1 note protocol", () => {
     await expect(
       note.unlockWithPassword({ slug, password: "wrong-password" }),
     ).rejects.toThrow();
+  }, 60_000);
+
+  it("editor unlock requires an active certificate", async () => {
+    const security = createBrowserSecurityProvider();
+    const delivery = memoryDelivery();
+    const note = createNoteProtocol({ security, delivery });
+    const slug = `note-${crypto.randomUUID().slice(0, 8)}`;
+    const created = await note.createPlace({
+      slug,
+      password: "test-password-ok",
+      burnMode: "never",
+    });
+    const issued = await note.issueEditorCapability(created.session);
+    await note.saveState({
+      session: issued.session,
+      workbook: created.workbook,
+    });
+    clearCheckpoint("workbook");
+    const asEditor = await note.unlockWithEditorCapability({
+      slug,
+      capability: issued.capability,
+    });
+    expect(asEditor.session.role).toBe("editor");
+  }, 60_000);
+
+  it("persists password change so the new password unlocks", async () => {
+    const security = createBrowserSecurityProvider();
+    const delivery = memoryDelivery();
+    const note = createNoteProtocol({ security, delivery });
+    const slug = `note-${crypto.randomUUID().slice(0, 8)}`;
+    const created = await note.createPlace({
+      slug,
+      password: "old-password-ok",
+      burnMode: "never",
+    });
+    await note.changePassword({
+      session: created.session,
+      oldPassword: "old-password-ok",
+      newPassword: "new-password-ok",
+    });
+    clearCheckpoint("workbook");
+    const unlocked = await note.unlockWithPassword({
+      slug,
+      password: "new-password-ok",
+    });
+    expect(unlocked.session.role).toBe("owner");
   }, 60_000);
 });

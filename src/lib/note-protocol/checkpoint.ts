@@ -1,3 +1,8 @@
+/**
+ * Trusted anti-rollback pin (KNP-1 §7). This is not a secret: hashes and
+ * version numbers only. Persisting in localStorage is intentional so a device
+ * can detect Delivery Gate rollback after a reload.
+ */
 export type NoteCheckpoint = {
   readonly noteId: string;
   readonly epoch: number;

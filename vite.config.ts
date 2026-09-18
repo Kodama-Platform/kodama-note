@@ -23,6 +23,7 @@ const localKscAliases = useLocalKsc
       ),
       // Source lives outside this repo — resolve its deps from Note's node_modules.
       "brotli-wasm": appPkg("brotli-wasm"),
+      "hash-wasm": appPkg("hash-wasm"),
       "@noble/ed25519": appPkg("@noble/ed25519"),
       "@noble/hashes": appPkg("@noble/hashes"),
     }
@@ -81,6 +82,9 @@ export default defineConfig({
       "@noble/ed25519",
       "@noble/hashes",
       "@noble/hashes/sha512",
+      "@tiptap/react",
+      "@tiptap/starter-kit",
+      "tiptap-markdown",
       ...(useLocalKsc ? [] : ["@kodama.page/core", "@kodama.page/security-browser"]),
     ],
     exclude: [
@@ -94,5 +98,25 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: false,
     target: "esnext",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/hash-wasm")) return "argon2";
+          if (
+            id.includes("node_modules/@tiptap") ||
+            id.includes("node_modules/tiptap-markdown") ||
+            id.includes("node_modules/prosemirror")
+          ) {
+            return "editor";
+          }
+          if (
+            id.includes("node_modules/@kodama.page/core") ||
+            id.includes("node_modules/@kodama.page/security-browser")
+          ) {
+            return "ksc";
+          }
+        },
+      },
+    },
   },
 });

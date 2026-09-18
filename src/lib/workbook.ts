@@ -1,4 +1,4 @@
-import { KODAMA_ATT_PREFIX } from "@/lib/kodama-image";
+const KODAMA_ATT_PREFIX = "kodama-att:";
 
 export const WORKBOOK_LIMITS = {
   maxSheets: 20,
@@ -7,12 +7,17 @@ export const WORKBOOK_LIMITS = {
   maxWorkbookTotal: 1024 * 1024,
 } as const;
 
+export type TabVisibility = "private" | "public";
+
 export type SheetMeta = {
   sheet_id: string;
   title: string;
   order: number;
   created_at?: string;
   updated_at?: string;
+  visibility?: TabVisibility;
+  public_slug?: string;
+  revision?: number;
 };
 
 export type WorkbookSheet = SheetMeta & {
@@ -56,15 +61,22 @@ function sortedSheets(sheets: WorkbookSheet[]): WorkbookSheet[] {
 }
 
 /** Canonical JSON: stable top-level keys and sheet field order. */
-export function serializeWorkbook(payload: WorkbookPayload): string {
-  validateWorkbook(payload);
+export function serializeWorkbook(
+  payload: WorkbookPayload,
+  options?: { validate?: boolean },
+): string {
+  if (options?.validate !== false) validateWorkbook(payload);
   const sheets = sortedSheets(payload.sheets).map((sheet) => {
+    const visibility = sheet.visibility === "public" ? "public" : "private";
     const out: Record<string, string | number | string[]> = {
       sheet_id: sheet.sheet_id,
       title: sheet.title,
       order: sheet.order,
       markdown: sheet.markdown,
+      visibility,
     };
+    if (visibility === "public" && sheet.public_slug) out.public_slug = sheet.public_slug;
+    if (typeof sheet.revision === "number") out.revision = sheet.revision;
     if (sheet.attachment_ids?.length) out.attachment_ids = sheet.attachment_ids;
     if (sheet.created_at) out.created_at = sheet.created_at;
     if (sheet.updated_at) out.updated_at = sheet.updated_at;
@@ -111,9 +123,73 @@ function normalizeSheet(raw: Record<string, unknown>, index: number): WorkbookSh
   const attachment_ids = normalizeAttachmentIds(raw.attachment_ids, markdown);
   const created_at = typeof raw.created_at === "string" ? raw.created_at : undefined;
   const updated_at = typeof raw.updated_at === "string" ? raw.updated_at : undefined;
-  const sheet: WorkbookSheet = { sheet_id, title, order, markdown, created_at, updated_at };
+  const visibility: TabVisibility = raw.visibility === "public" ? "public" : "private";
+  const public_slug = typeof raw.public_slug === "string" ? raw.public_slug : undefined;
+  const revision = typeof raw.revision === "number" ? raw.revision : undefined;
+  const sheet: WorkbookSheet = {
+    sheet_id,
+    title,
+    order,
+    markdown,
+    created_at,
+    updated_at,
+    visibility,
+  };
+  if (visibility === "public" && public_slug) sheet.public_slug = public_slug;
+  if (revision != null) sheet.revision = revision;
   if (attachment_ids.length) sheet.attachment_ids = attachment_ids;
   return sheet;
+}
+
+/** Private-bundle parse: empty sheets stay empty (no invented Main tab). */
+export function parsePrivateBundle(plaintext: string): WorkbookPayload {
+  const trimmed = plaintext.trim();
+  if (!trimmed) return { schema_version: 1, primary_sheet_id: "", sheets: [] };
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (isWorkbookJsonObject(parsed)) {
+        const sheets = parsed.sheets.map((s, i) => {
+          const sheet = normalizeSheet(s, i);
+          return { ...sheet, visibility: "private" as const, public_slug: undefined, revision: undefined };
+        });
+        const primary =
+          sheets.find((s) => s.sheet_id === parsed.primary_sheet_id)?.sheet_id ??
+          sheets[0]?.sheet_id ??
+          "";
+        return { schema_version: 1, primary_sheet_id: primary, sheets: sortedSheets(sheets) };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  return migrateLegacyMarkdown(plaintext);
+}
+
+/** Canonical private envelope JSON — public tabs are stripped. */
+export function serializePrivateBundle(payload: WorkbookPayload): string {
+  const privateSheets = payload.sheets.filter((s) => s.visibility !== "public");
+  const sheets = sortedSheets(privateSheets).map((sheet) => {
+    const out: Record<string, string | number | string[]> = {
+      sheet_id: sheet.sheet_id,
+      title: sheet.title,
+      order: sheet.order,
+      markdown: sheet.markdown,
+    };
+    if (sheet.attachment_ids?.length) out.attachment_ids = sheet.attachment_ids;
+    if (sheet.created_at) out.created_at = sheet.created_at;
+    if (sheet.updated_at) out.updated_at = sheet.updated_at;
+    return out;
+  });
+  const primary =
+    privateSheets.find((s) => s.sheet_id === payload.primary_sheet_id)?.sheet_id ??
+    privateSheets[0]?.sheet_id ??
+    "";
+  return JSON.stringify({
+    schema_version: 1,
+    primary_sheet_id: primary,
+    sheets,
+  });
 }
 
 /** Parse decrypted plaintext — migrates legacy single-markdown notes. */
@@ -126,7 +202,9 @@ export function parseWorkbook(plaintext: string): WorkbookPayload {
       const parsed = JSON.parse(trimmed) as unknown;
       if (isWorkbookJsonObject(parsed)) {
         const sheets = parsed.sheets.map((s, i) => normalizeSheet(s, i));
-        if (sheets.length === 0) return createEmptyWorkbook();
+        if (sheets.length === 0) {
+          return { schema_version: 1, primary_sheet_id: "", sheets: [] };
+        }
         const primary =
           sheets.find((s) => s.sheet_id === parsed.primary_sheet_id)?.sheet_id ??
           sheets[0].sheet_id;
@@ -178,6 +256,7 @@ export function createEmptyWorkbook(): WorkbookPayload {
         title: "",
         order: 0,
         markdown: "",
+        visibility: "private",
         created_at: ts,
         updated_at: ts,
       },
@@ -270,21 +349,42 @@ export function nextDefaultSheetTitle(payload: WorkbookPayload): string {
   return "Untitled";
 }
 
-export function addSheet(payload: WorkbookPayload): WorkbookPayload {
+export function addSheet(
+  payload: WorkbookPayload,
+  options?: { visibility?: TabVisibility },
+): WorkbookPayload {
   if (payload.sheets.length >= WORKBOOK_LIMITS.maxSheets) {
     throw new WorkbookError("too_many_sheets");
   }
   const ts = nowIso();
   const maxOrder = Math.max(-1, ...payload.sheets.map((s) => s.order));
+  const visibility = options?.visibility === "public" ? "public" : "private";
+  const title = nextDefaultSheetTitle(payload);
   const sheet: WorkbookSheet = {
     sheet_id: newSheetId(),
-    title: nextDefaultSheetTitle(payload),
+    title,
     order: maxOrder + 1,
     markdown: "",
+    visibility,
     created_at: ts,
     updated_at: ts,
   };
+  if (visibility === "public") {
+    sheet.public_slug = slugifyLocalTitle(title);
+  }
   return { ...payload, sheets: [...payload.sheets, sheet] };
+}
+
+function slugifyLocalTitle(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
+  return slug || "tab";
 }
 
 export function renameSheet(
@@ -374,7 +474,11 @@ export function getSheetAttachmentIdsForDelete(
   sheetId: string,
 ): string[] {
   const sheet = getSheetById(payload, sheetId);
-  return sheet?.attachment_ids ? [...sheet.attachment_ids] : [];
+  const ids = new Set((sheet?.attachment_ids ?? []).map((id) => id.toLowerCase()));
+  if (sheet) {
+    for (const id of collectSheetAttachmentRefs(sheet.markdown)) ids.add(id);
+  }
+  return [...ids];
 }
 
 function findSheetOwningAttachment(

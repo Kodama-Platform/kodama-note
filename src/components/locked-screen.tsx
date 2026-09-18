@@ -18,7 +18,7 @@ type LockedScreenProps = {
   password: string;
   onPasswordChange: (value: string) => void;
   onSubmit: (e: FormEvent) => void;
-  /** KSP: paste out-of-band editor capability JSON instead of password. */
+  /** Paste out-of-band KNP editor capability JSON instead of password. */
   onImportEditorCapability?: (raw: string) => void | Promise<void>;
   expiryNote?: string | null;
   autoFocusPassword?: boolean;
@@ -26,6 +26,7 @@ type LockedScreenProps = {
   shareLinkUnlocking?: boolean;
   /** When false, password field is hidden (read-only link visit). */
   passwordFallback?: boolean;
+  onCancel?: () => void;
 };
 
 export function LockedScreen({
@@ -41,6 +42,7 @@ export function LockedScreen({
   autoFocusPassword = true,
   shareLinkUnlocking = false,
   passwordFallback = true,
+  onCancel,
 }: LockedScreenProps) {
   const [showImport, setShowImport] = useState(false);
   const [importRaw, setImportRaw] = useState("");
@@ -135,6 +137,15 @@ export function LockedScreen({
               </div>
             )}
           </div>
+        )}
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="mt-6 text-sm font-light text-muted-foreground underline-offset-4 hover:underline"
+          >
+            Back to public pages
+          </button>
         )}
       </NoteCard>
     </GateShell>

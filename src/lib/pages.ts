@@ -2,78 +2,27 @@
 //
 // Zero-knowledge contract (KNP-1):
 // - Password and private keys never leave the browser.
-// - Delivery Gate stores ciphertext + public meta only (never decrypts).
-import { supabase } from "@/integrations/supabase/client";
-import { assertNoSecretsInPayload } from "@/lib/server-payload";
-
-type KnpEdgeError = { error?: string; ok?: boolean; reason?: string };
-
-async function readEdgeFunctionBody(error: unknown): Promise<KnpEdgeError | null> {
-  if (!error || typeof error !== "object") return null;
-  const context = (error as { context?: Response }).context;
-  if (!(context instanceof Response)) return null;
-  try {
-    return (await context.clone().json()) as KnpEdgeError;
-  } catch {
-    return null;
-  }
-}
-
-function isEdgeFunctionUnavailable(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /failed to send|not found|404|function.*not.*deploy|FunctionsFetchError|Failed to fetch/i.test(
-    message,
-  );
-}
-
-async function invokeKnpFunction<T>(
-  name: string,
-  body: Record<string, unknown>,
-): Promise<T> {
-  assertNoSecretsInPayload(body, name);
-  const { data, error } = await supabase.functions.invoke(name, { body });
-  if (error) {
-    const edgeBody = await readEdgeFunctionBody(error);
-    if (edgeBody?.reason === "slug_taken") {
-      return { ok: false, reason: "slug_taken" } as T;
-    }
-    if (edgeBody?.error) {
-      throw new Error(String(edgeBody.error));
-    }
-    throw error;
-  }
-  const payload = data as T & KnpEdgeError;
-  if (payload && typeof payload === "object" && "error" in payload && payload.error) {
-    throw new Error(String(payload.error));
-  }
-  return payload;
-}
-
-async function createPageViaRpc(input: CreatePageInput): Promise<CreatePageResult> {
-  const { data, error } = await rpc("kodama_create_page", {
-    p_slug: input.slug,
-    p_ciphertext: input.ciphertext,
-    p_salt: input.salt,
-    p_iv: input.iv,
-    p_kdf_params: input.kdf_params,
-    p_burn_mode: input.burn_mode,
-  });
-  if (error) {
-    if (error.code === "23505" || /duplicate|unique/i.test(error.message)) {
-      return { ok: false, reason: "slug_taken" };
-    }
-    throw new Error(error.message);
-  }
-  const row = data as { expires_at: string | null };
-  return { ok: true, expires_at: row.expires_at };
-}
-
-// Generated Supabase types don't yet include our custom RPCs — call untyped.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const rpc = (name: string, args?: Record<string, unknown>) => {
-  if (args) assertNoSecretsInPayload(args, name);
-  return (supabase.rpc as any)(name, args);
-};
+// - Delivery Gate (https://api.kodama.com/v1/notes) stores ciphertext + public meta only.
+import { createNoteApiDeliveryClient } from "@/lib/note-delivery-client";
+import {
+  NoteApiError,
+  isMissingPlaceError,
+  noteApiGetBlob,
+  noteApiJson,
+  noteApiPutBlob,
+  noteResourceUrl,
+} from "@/lib/note-api";
+import {
+  defaultNoteEntitlement,
+  defaultNotePaymentPublic,
+  parseNoteEntitlement,
+  parseNotePaymentPublic,
+  type NotePlaceEntitlement,
+  type NotePlacePaymentPublic,
+} from "@/lib/note-payment";
+import { parseNotePlaceSettings, type NotePlaceSettings } from "@/lib/note-place-settings";
+import { getPlacePublicView } from "@/lib/note-tabs-api";
+import { parsePlacePublicView, type PublicTabRecord } from "@/lib/tab-visibility";
 
 export type SerializableKdfParams =
   | {
@@ -106,17 +55,16 @@ export type PageRow = {
   expires_at: string | null;
   created_at: string;
   updated_at: string;
+  settings?: NotePlaceSettings | null;
+  payment?: NotePlacePaymentPublic | null;
+  entitlement?: NotePlaceEntitlement | null;
+  paid_unlock_required?: boolean;
+  title?: string;
+  description?: string;
+  public_tabs?: PublicTabRecord[];
 };
 
 export type GetPageResult = { exists: false } | ({ exists: true } & PageRow);
-
-export async function getPage(slug: string): Promise<GetPageResult> {
-  const { data, error } = await rpc("kodama_read_page", { p_slug: slug });
-  if (error) throw new Error(error.message);
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!row) return { exists: false };
-  return hydratePageRow(row);
-}
 
 function parseJsonField(raw: unknown): unknown {
   if (typeof raw === "string") {
@@ -129,105 +77,92 @@ function parseJsonField(raw: unknown): unknown {
   return raw;
 }
 
-function hydratePageRow(
-  row: Record<string, unknown>,
-): Extract<GetPageResult, { exists: true }> {
+function hydratePageRow(row: Record<string, unknown>): Extract<GetPageResult, { exists: true }> {
   const rawKdf = parseJsonField(row.kdf_params);
+  const slug = String(row.slug ?? "");
+  const publicView = parsePlacePublicView(row, slug);
   return {
     exists: true,
-    id: row.id as string,
-    slug: row.slug as string,
-    ciphertext: row.ciphertext as string,
+    id: String(row.id ?? row.slug ?? ""),
+    slug,
+    ciphertext: (row.ciphertext as string) ?? "",
     iv: (row.iv as string) ?? "",
-    salt: row.salt as string,
+    salt: (row.salt as string) ?? "",
     kdf_params: (rawKdf ?? {}) as SerializableKdfParams,
     burn_mode: row.burn_mode as BurnMode,
-    expires_at: row.expires_at as string | null,
-    created_at: row.created_at as string,
-    updated_at: row.updated_at as string,
+    expires_at: (row.expires_at as string | null) ?? null,
+    created_at: (row.created_at as string) ?? "",
+    updated_at: (row.updated_at as string) ?? "",
+    settings: parseNotePlaceSettings(row.settings),
+    payment: parseNotePaymentPublic(row.payment, slug),
+    entitlement: parseNoteEntitlement(row.entitlement, slug),
+    paid_unlock_required: row.paid_unlock_required === true,
+    title: publicView.title,
+    description: publicView.description,
+    public_tabs: publicView.tabs,
   };
 }
 
-export type CreatePageInput = {
-  slug: string;
-  /** AES-GCM ciphertext produced by encrypt() in the browser — never plaintext. */
-  ciphertext: string;
-  salt: string;
-  iv: string;
-  kdf_params: SerializableKdfParams;
-  burn_mode: BurnMode;
-};
-
-export type CreatePageResult =
-  | { ok: true; expires_at: string | null }
-  | { ok: false; reason: "slug_taken" };
-
-export async function createPage(input: CreatePageInput): Promise<CreatePageResult> {
-  try {
-    const result = await invokeKnpFunction<CreatePageResult>("knp-create-page", {
-      slug: input.slug,
-      ciphertext: input.ciphertext,
-      salt: input.salt,
-      iv: input.iv,
-      kdf_params: input.kdf_params,
-      burn_mode: input.burn_mode,
-    });
-    if (!result.ok && result.reason === "slug_taken") {
-      return { ok: false, reason: "slug_taken" };
-    }
-    if (!result.ok) throw new Error("Failed to create page");
-    return result;
-  } catch (err) {
-    if (isEdgeFunctionUnavailable(err)) {
-      return createPageViaRpc(input);
-    }
-    throw err;
-  }
+function hydratePaidUnlockPage(
+  slug: string,
+  payload: Record<string, unknown> | undefined,
+): Extract<GetPageResult, { exists: true }> {
+  const row = { slug, ...(payload ?? {}), ciphertext: "", paid_unlock_required: true };
+  const hydrated = hydratePageRow(row);
+  return {
+    ...hydrated,
+    payment: hydrated.payment ?? defaultNotePaymentPublic(slug),
+    entitlement: hydrated.entitlement ?? {
+      ...defaultNoteEntitlement(slug),
+      paid_unlock_required: true,
+    },
+    paid_unlock_required: true,
+  };
 }
 
-/** Append ciphertext version (used by non-protocol callers). Prefer NoteDeliveryClient. */
-export async function savePage(args: {
-  slug: string;
-  ciphertext: string;
-  iv: string;
-  ksp?: boolean;
-  legacyEditToken?: string | null;
-}): Promise<{ id: string; created_at: string }> {
+export async function getPage(slug: string): Promise<GetPageResult> {
   try {
-    return await invokeKnpFunction("knp-append-version", {
-      slug: args.slug,
-      ciphertext: args.ciphertext,
-      iv: args.iv ?? "",
-      expected_version: -1,
-    });
-  } catch (err) {
-    if (!isEdgeFunctionUnavailable(err)) throw err;
-    const { data, error } = await rpc("kodama_ksp_append_version", {
-      p_slug: args.slug,
-      p_ciphertext: args.ciphertext,
-      p_iv: args.iv ?? "",
-    });
-    if (error) throw new Error(error.message);
-    return data as { id: string; created_at: string };
+    const row = await noteApiJson<Record<string, unknown>>("GET", noteResourceUrl(slug));
+    const hydrated = hydratePageRow(row);
+    if ((hydrated.public_tabs?.length ?? 0) === 0) {
+      try {
+        const view = await getPlacePublicView(slug);
+        if (view.tabs.length) {
+          return {
+            ...hydrated,
+            title: view.title || hydrated.title,
+            description: view.description || hydrated.description,
+            public_tabs: view.tabs,
+          };
+        }
+      } catch {
+        /* public resource optional */
+      }
+    }
+    return hydrated;
+  } catch (error) {
+    if (isMissingPlaceError(error)) return { exists: false };
+    if (
+      error instanceof NoteApiError &&
+      (error.status === 402 || error.reason === "paid_unlock_required")
+    ) {
+      return hydratePaidUnlockPage(slug, error.payload);
+    }
+    throw error;
   }
 }
 
 export async function updateExpiry(args: {
   slug: string;
   burn_mode: BurnMode;
-  ksp?: boolean;
-  legacyEditToken?: string | null;
 }): Promise<{ burn_mode: BurnMode; expires_at: string | null }> {
-  const { data, error } = await rpc("kodama_ksp_update_expiry", {
-    p_slug: args.slug,
-    p_burn_mode: args.burn_mode,
+  const delivery = createNoteApiDeliveryClient();
+  const res = await delivery.updateExpiry({
+    kind: "note.updateExpiry",
+    slug: args.slug,
+    burnMode: args.burn_mode,
   });
-  if (error) throw new Error(error.message);
-  const row = Array.isArray(data) ? data[0] : data;
-  return {
-    burn_mode: row.burn_mode as BurnMode,
-    expires_at: row.expires_at,
-  };
+  return { burn_mode: res.burn_mode as BurnMode, expires_at: res.expires_at };
 }
 
 export type AttachmentRow = {
@@ -242,9 +177,12 @@ export type AttachmentRow = {
 };
 
 export async function listAttachments(slug: string): Promise<AttachmentRow[]> {
-  const { data, error } = await rpc("kodama_list_attachments", { p_slug: slug });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as AttachmentRow[];
+  const data = await noteApiJson<AttachmentRow[] | { attachments?: AttachmentRow[]; items?: AttachmentRow[] }>(
+    "GET",
+    noteResourceUrl(slug, "attachments"),
+  );
+  if (Array.isArray(data)) return data;
+  return data.attachments ?? data.items ?? [];
 }
 
 export async function registerAttachment(args: {
@@ -255,43 +193,50 @@ export async function registerAttachment(args: {
   filename_iv: string;
   mime: string;
   size: number;
-  ksp?: boolean;
-  legacyEditToken?: string | null;
 }): Promise<{ id: string; created_at: string }> {
-  const { data, error } = await rpc("kodama_ksp_register_attachment", {
-    p_slug: args.slug,
-    p_storage_path: args.storage_path,
-    p_iv: args.iv,
-    p_filename_ciphertext: args.filename_ciphertext,
-    p_filename_iv: args.filename_iv,
-    p_mime: args.mime,
-    p_size: args.size,
+  const delivery = createNoteApiDeliveryClient();
+  return delivery.publishEncryptedAttachment({
+    kind: "note.publishAttachment",
+    slug: args.slug,
+    storagePath: args.storage_path,
+    iv: args.iv,
+    filenameCiphertext: args.filename_ciphertext,
+    filenameIv: args.filename_iv,
+    mime: args.mime,
+    size: args.size,
   });
-  if (error) throw new Error(error.message);
-  return data as { id: string; created_at: string };
 }
 
 export async function deleteAttachment(args: {
   slug: string;
   attachment_id: string;
-  ksp?: boolean;
-  legacyEditToken?: string | null;
 }): Promise<void> {
-  const { error } = await rpc("kodama_ksp_delete_attachment", {
-    p_slug: args.slug,
-    p_attachment_id: args.attachment_id,
+  const delivery = createNoteApiDeliveryClient();
+  await delivery.deleteEncryptedAttachment({
+    kind: "note.deleteAttachment",
+    slug: args.slug,
+    attachmentId: args.attachment_id,
   });
-  if (error) throw new Error(error.message);
 }
-export async function uploadAttachmentBlob(path: string, blob: Blob): Promise<void> {
-  const { error } = await supabase.storage
-    .from("page-attachments")
-    .upload(path, blob, { contentType: "application/octet-stream", upsert: false });
-  if (error) throw new Error(error.message);
+
+export async function uploadAttachmentBlob(path: string, blob: Blob): Promise<string> {
+  const slug = path.split("/")[0] || path;
+  const url = noteResourceUrl(slug, "files", path);
+  await noteApiPutBlob(url, blob);
+  return url;
 }
 
 export async function downloadAttachmentBlob(path: string): Promise<Blob> {
-  const { data, error } = await supabase.storage.from("page-attachments").download(path);
-  if (error) throw new Error(error.message);
-  return data;
+  const slug = path.split("/")[0] || path;
+  return noteApiGetBlob(noteResourceUrl(slug, "files", path));
+}
+
+export async function deleteAttachmentBlob(path: string): Promise<void> {
+  const slug = path.split("/")[0] || path;
+  try {
+    await noteApiJson("DELETE", noteResourceUrl(slug, "files", path));
+  } catch (e) {
+    if (e instanceof NoteApiError && e.status === 404) return;
+    throw e;
+  }
 }

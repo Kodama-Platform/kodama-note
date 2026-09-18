@@ -1,7 +1,7 @@
 import { createEmptyWorkbook, serializeWorkbook } from "@/lib/workbook";
 
 /**
- * UI-polish mode: skip password / KSP encryption and persist workbooks in localStorage.
+ * UI-polish mode: skip password / KNP encryption and persist workbooks in localStorage.
  * On in `npm run dev` by default. Set `VITE_PLAINTEXT_MODE=false` to restore crypto.
  * In production builds, set `VITE_PLAINTEXT_MODE=true` explicitly to enable.
  */
@@ -10,7 +10,6 @@ export function isPlaintextMode(): boolean {
   if (flag === "false" || flag === "0") return false;
   if (flag === "true" || flag === "1") return true;
 
-  return true;
   return import.meta.env.DEV;
 }
 

@@ -38,4 +38,11 @@ export type { KodamaEditorThemeStyle } from "./theme";
 export { EditorFormatToolbar } from "./components/format-toolbar";
 export { EditorSlashMenu, EditorBlockInsertButton } from "./components/slash-menu";
 export { createMediaImageExtension } from "./extensions/media-image";
+export {
+  asImageFile,
+  clipboardLikelyHasImage,
+  collectClipboardImages,
+  dataUrlToFile,
+  imageAltFromFile,
+} from "./lib/clipboard-images";
 export type { Editor } from "@tiptap/react";

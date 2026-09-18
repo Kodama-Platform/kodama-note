@@ -17,7 +17,7 @@ function sheet(
 }
 
 describe("SheetTrailhead", () => {
-  it("shows Grow trail for a single editable sheet", () => {
+  it("shows add actions for a single editable sheet", () => {
     const onAdd = vi.fn();
     render(
       <SheetTrailhead
@@ -32,8 +32,8 @@ describe("SheetTrailhead", () => {
     );
 
     expect(screen.getByText("One trail in this grove")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Grow trail/i }));
-    expect(onAdd).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /^Private$/i }));
+    expect(onAdd).toHaveBeenCalledWith("private");
   });
 
   it("opens a named trail list when there are multiple sheets", () => {

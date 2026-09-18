@@ -9,7 +9,7 @@ import {
 } from "@kodama.page/core";
 
 import { KNP_PROTOCOL, KNP_SUITE } from "./constants";
-import { toBufferSource } from "@/lib/crypto";
+import { toBufferSource } from "@/lib/crypto-utils";
 
 export type StateHeader = {
   readonly protocol: typeof KNP_PROTOCOL;

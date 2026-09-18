@@ -6,6 +6,7 @@ import type { NodeViewProps } from "@tiptap/react";
 import { fetchAttachmentList } from "@/lib/attachment-list";
 import { decryptAttachmentBytes, attachmentContentType } from "@/lib/attachment-crypto";
 import type { PlaceCryptoSession } from "@/lib/crypto-context";
+import { parseAttachmentStorageUrl } from "@/lib/note-api";
 import { downloadAttachmentBlob } from "@/lib/pages";
 
 export const KODAMA_ATT_PREFIX = "kodama-att:";
@@ -31,12 +32,12 @@ export async function resolveKodamaAttachmentUrl(
   attachmentId: string,
   ctx: ResolverContext,
 ): Promise<string | null> {
-  if (ctx.allowedAttachmentIds && !ctx.allowedAttachmentIds.has(attachmentId.toLowerCase())) {
-    return null;
-  }
   const cacheKey = `${ctx.slug}:${attachmentId}`;
   const cached = blobCache.get(cacheKey);
   if (cached) return cached;
+  if (ctx.allowedAttachmentIds && !ctx.allowedAttachmentIds.has(attachmentId.toLowerCase())) {
+    return null;
+  }
 
   const rows = await fetchAttachmentList(ctx.slug);
   const row = rows.find((r) => r.id === attachmentId);
@@ -47,8 +48,56 @@ export async function resolveKodamaAttachmentUrl(
   const pt = await decryptAttachmentBytes(ctx.crypto, row, ct);
   const url = URL.createObjectURL(
     new Blob([pt.buffer as ArrayBuffer], { type: attachmentContentType(row.mime) }),
-  );  blobCache.set(cacheKey, url);
+  );
+  cachePut(cacheKey, url);
+  cachePut(`${ctx.slug}:path:${row.storage_path}`, url);
   return url;
+}
+
+function cachePut(key: string, url: string) {
+  const existing = blobCache.get(key);
+  if (existing && existing !== url) URL.revokeObjectURL(existing);
+  blobCache.set(key, url);
+}
+
+/** Show a just-pasted file immediately, before the allowed-id set / download catch up. */
+export function primeKodamaBlobCache(
+  slug: string,
+  attachmentId: string,
+  file: Blob,
+  storagePath?: string,
+): string {
+  const url = URL.createObjectURL(file);
+  cachePut(`${slug}:${attachmentId}`, url);
+  if (storagePath) cachePut(`${slug}:path:${storagePath}`, url);
+  return url;
+}
+
+export async function resolveKodamaAttachmentByPath(
+  storagePath: string,
+  ctx: ResolverContext,
+): Promise<string | null> {
+  const pathKey = `${ctx.slug}:path:${storagePath}`;
+  const cached = blobCache.get(pathKey);
+  if (cached) return cached;
+  const rows = await fetchAttachmentList(ctx.slug);
+  const row = rows.find((r) => r.storage_path === storagePath);
+  if (!row) return null;
+  const url = await resolveKodamaAttachmentUrl(row.id, ctx);
+  if (url) cachePut(pathKey, url);
+  return url;
+}
+
+/** Resolve `kodama-att:` or a Note files URL to a displayable blob URL. */
+export async function resolveKodamaImageSrc(
+  src: string,
+  ctx: ResolverContext,
+): Promise<string | null> {
+  const attId = parseKodamaAttUrl(src);
+  if (attId) return resolveKodamaAttachmentUrl(attId, ctx);
+  const path = parseAttachmentStorageUrl(src);
+  if (path) return resolveKodamaAttachmentByPath(path, ctx);
+  return src;
 }
 
 export function revokeKodamaBlobCache(slug: string) {

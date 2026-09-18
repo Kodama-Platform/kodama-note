@@ -1,12 +1,29 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Flame, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { LockedScreen } from "@/components/locked-screen";
+import { PaidUnlockGate } from "@/components/paid-unlock-gate";
 import { NoteShell } from "@/components/site/note-shell";
-import { Editor } from "@/components/editor";
+import { fetchPayAccountMe, startPayCheckout } from "@/lib/kodama-pay";
+import type { NotePlaceEntitlement, NotePlacePaymentPublic } from "@/lib/note-payment";
+import type { NotePlaceSettings } from "@/lib/note-place-settings";
+
+const Editor = lazy(() =>
+  import("@/components/editor").then((m) => ({ default: m.Editor })),
+);
 import {
   EncryptionProgress,
   type EncryptionPhase,
@@ -15,8 +32,10 @@ import { slugSchema } from "@/lib/slug";
 import { getSheetIdFromHash, migrateCodeToHash, readUnlockCode, stripCodeFromUrl, stripSensitiveHashParams } from "@/lib/hash-params";
 import {
   createPlaintextSession,
+  createPublicSession,
   type PlaceCryptoSession,
 } from "@/lib/crypto-context";
+import { publicTabsToWorkbook, resolveSheetRef } from "@/lib/tab-visibility";
 import { clearDecryptedSession, type LockReason } from "@/lib/lock-session";
 import { BURN_MODES, getPage, type BurnMode, type GetPageResult } from "@/lib/pages";
 import { pageQueryKey, type ExistingPage } from "@/lib/page-query";
@@ -96,31 +115,56 @@ function UnlockedEditor({
   session,
   burnMode,
   expiresAt,
+  settings,
+  payment,
+  entitlement,
   onLock,
+  onUnlockPrivate,
 }: {
   slug: string;
   session: UnlockedSession;
   burnMode: BurnMode;
   expiresAt: string | null;
+  settings?: NotePlaceSettings | null;
+  payment?: NotePlacePaymentPublic | null;
+  entitlement?: NotePlaceEntitlement | null;
   onLock: (reason: LockReason) => void;
+  onUnlockPrivate?: () => void;
 }) {
   const workbook = useMemo(() => parseWorkbook(session.plaintext), [session.plaintext]);
   const preferred =
-    getSheetIdFromHash() ?? readLastOpenedSheet(slug) ?? workbook.primary_sheet_id;
+    resolveSheetRef(workbook, getSheetIdFromHash()) ??
+    resolveSheetRef(workbook, readLastOpenedSheet(slug)) ??
+    workbook.primary_sheet_id;
   const initialActiveSheetId = resolveInitialSheetId(workbook, preferred);
 
   return (
-    <Editor
-      slug={slug}
-      initialWorkbook={workbook}
-      initialActiveSheetId={initialActiveSheetId}
-      initialUpdatedAt={session.updatedAt}
-      crypto={session.crypto}
-      burnMode={burnMode}
-      expiresAt={expiresAt}
-      unlockCapability={session.capability}
-      onLock={onLock}
-    />
+    <Suspense
+      fallback={
+        <NoteShell centered>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+            <span>Opening editor…</span>
+          </div>
+        </NoteShell>
+      }
+    >
+      <Editor
+        slug={slug}
+        initialWorkbook={workbook}
+        initialActiveSheetId={initialActiveSheetId}
+        initialUpdatedAt={session.updatedAt}
+        crypto={session.crypto}
+        burnMode={burnMode}
+        expiresAt={expiresAt}
+        unlockCapability={session.capability}
+        initialSettings={settings}
+        initialPayment={payment}
+        initialEntitlement={entitlement}
+        onLock={onLock}
+        onUnlockPrivate={onUnlockPrivate}
+      />
+    </Suspense>
   );
 }
 
@@ -289,6 +333,10 @@ function EncryptedPageGate({ slug }: { slug: string }) {
   }
 
   const page: ExistingPage | null = data?.exists === true ? data : null;
+
+  if (page?.paid_unlock_required && !page.ciphertext) {
+    return <PaidUnlockPage slug={slug} payment={page.payment ?? null} />;
+  }
 
   return (
     <UnlockGate
@@ -537,6 +585,12 @@ function UnlockGate({
   const queryClient = useQueryClient();
   const [session, setSession] = useState<UnlockedSession | null>(null);
   const [lockReason, setLockReason] = useState<LockReason | null>(null);
+  const [unlockPrivate, setUnlockPrivate] = useState(false);
+  const publicWorkbook = useMemo(
+    () => (page ? publicTabsToWorkbook(page.public_tabs ?? []) : null),
+    [page],
+  );
+  const hasPublicTabs = (page?.public_tabs?.length ?? 0) > 0;
   const [pw, setPw] = useState("");
   const hasReadShareLink = !!getFragmentCapability("read");
   const [busy, setBusy] = useState(!!codePassword || hasReadShareLink);
@@ -712,7 +766,31 @@ function UnlockGate({
         session={session}
         burnMode={page?.burn_mode ?? "never"}
         expiresAt={page?.expires_at ?? null}
+        settings={page?.settings}
+        payment={page?.payment}
+        entitlement={page?.entitlement}
         onLock={endSession}
+      />
+    );
+  }
+
+  if (hasPublicTabs && publicWorkbook && !unlockPrivate && !lockReason) {
+    return (
+      <UnlockedEditor
+        slug={slug}
+        session={{
+          crypto: createPublicSession(),
+          plaintext: serializeWorkbook(publicWorkbook, { validate: false }),
+          updatedAt: page?.updated_at ?? new Date().toISOString(),
+          capability: "reader",
+        }}
+        burnMode={page?.burn_mode ?? "never"}
+        expiresAt={page?.expires_at ?? null}
+        settings={page?.settings}
+        payment={page?.payment}
+        entitlement={page?.entitlement}
+        onLock={endSession}
+        onUnlockPrivate={() => setUnlockPrivate(true)}
       />
     );
   }
@@ -731,7 +809,43 @@ function UnlockGate({
       autoFocusPassword={!codePassword && !(hasReadShareLink && !shareUnlockFailed)}
       shareLinkUnlocking={hasReadShareLink && !shareUnlockFailed}
       passwordFallback={!hasReadShareLink || shareUnlockFailed}
+      onCancel={hasPublicTabs ? () => setUnlockPrivate(false) : undefined}
     />
+  );
+}
+
+function PaidUnlockPage({
+  slug,
+  payment,
+}: {
+  slug: string;
+  payment: NotePlacePaymentPublic | null;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const onCheckout = async () => {
+    setBusy(true);
+    try {
+      const account = await fetchPayAccountMe();
+      const result = await startPayCheckout({
+        account_id: account?.account_id,
+        product: "note",
+        place_slug: slug,
+      });
+      if (result.checkout_url) {
+        window.location.assign(result.checkout_url);
+        return;
+      }
+      toast.error("Checkout did not return a URL");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't start checkout");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <PaidUnlockGate slug={slug} payment={payment} busy={busy} onCheckout={() => void onCheckout()} />
   );
 }
 

@@ -18,9 +18,7 @@ function isDirectSrc(src: string): boolean {
 function MediaImageView({ node, extension }: NodeViewProps) {
   const media = extension.options.media as KodamaMediaAdapter | undefined;
   const src = (node.attrs.src as string | null) ?? "";
-  const [displaySrc, setDisplaySrc] = useState<string | null>(() =>
-    src && isDirectSrc(src) ? src : null,
-  );
+  const [displaySrc, setDisplaySrc] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,13 +26,15 @@ function MediaImageView({ node, extension }: NodeViewProps) {
       setDisplaySrc(null);
       return;
     }
-    if (isDirectSrc(src) || !media?.resolveSrc) {
-      setDisplaySrc(src && isDirectSrc(src) ? src : null);
-      return;
+    if (media?.resolveSrc) {
+      Promise.resolve(media.resolveSrc(src)).then((url) => {
+        if (!cancelled) setDisplaySrc(url ?? (isDirectSrc(src) ? src : null));
+      });
+      return () => {
+        cancelled = true;
+      };
     }
-    Promise.resolve(media.resolveSrc(src)).then((url) => {
-      if (!cancelled) setDisplaySrc(url);
-    });
+    setDisplaySrc(isDirectSrc(src) ? src : null);
     return () => {
       cancelled = true;
     };
