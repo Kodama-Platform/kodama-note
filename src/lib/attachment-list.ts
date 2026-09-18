@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 
+import type { NoteSession } from "@/lib/note-protocol";
 import { listAttachments, type AttachmentRow } from "@/lib/pages";
 
 export const attachmentsQueryKey = (slug: string) => ["attachments", slug] as const;
@@ -8,13 +9,16 @@ const rowsCache = new Map<string, AttachmentRow[]>();
 const inflight = new Map<string, Promise<AttachmentRow[]>>();
 
 /** Deduplicated attachment list fetch — shared by the panel and inline image resolver. */
-export async function fetchAttachmentList(slug: string): Promise<AttachmentRow[]> {
+export async function fetchAttachmentList(
+  slug: string,
+  session?: NoteSession,
+): Promise<AttachmentRow[]> {
   const cached = rowsCache.get(slug);
   if (cached) return cached;
 
   let pending = inflight.get(slug);
   if (!pending) {
-    pending = listAttachments(slug)
+    pending = listAttachments(slug, session)
       .then((rows) => {
         rowsCache.set(slug, rows);
         inflight.delete(slug);

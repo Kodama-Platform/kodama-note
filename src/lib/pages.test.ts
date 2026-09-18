@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getPage } from "@/lib/pages";
+import { getPage, listAttachments } from "@/lib/pages";
 
 describe("getPage", () => {
   afterEach(() => {
@@ -100,5 +100,14 @@ describe("getPage", () => {
       ),
     );
     await expect(getPage("missing")).resolves.toEqual({ exists: false });
+  });
+});
+
+describe("listAttachments", () => {
+  it("does not call /notes/{slug}/attachments", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(listAttachments("itcvmaster")).resolves.toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

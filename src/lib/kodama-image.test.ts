@@ -16,6 +16,9 @@ vi.mock("@/lib/pages", () => ({
   downloadAttachmentBlob: vi.fn(async () => ({
     arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
   })),
+  downloadFileById: vi.fn(async () => ({
+    arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+  })),
 }));
 
 vi.mock("@/lib/attachment-crypto", () => ({

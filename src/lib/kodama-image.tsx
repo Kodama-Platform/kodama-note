@@ -7,7 +7,7 @@ import { fetchAttachmentList } from "@/lib/attachment-list";
 import { decryptAttachmentBytes, attachmentContentType } from "@/lib/attachment-crypto";
 import type { PlaceCryptoSession } from "@/lib/crypto-context";
 import { parseAttachmentStorageUrl } from "@/lib/note-api";
-import { downloadAttachmentBlob } from "@/lib/pages";
+import { downloadAttachmentBlob, downloadFileById } from "@/lib/pages";
 
 export const KODAMA_ATT_PREFIX = "kodama-att:";
 
@@ -39,18 +39,13 @@ export async function resolveKodamaAttachmentUrl(
     return null;
   }
 
-  const rows = await fetchAttachmentList(ctx.slug);
-  const row = rows.find((r) => r.id === attachmentId);
-  if (!row) return null;
-
-  const blob = await downloadAttachmentBlob(row.storage_path);
+  const blob = await downloadFileById(attachmentId);
   const ct = new Uint8Array(await blob.arrayBuffer());
-  const pt = await decryptAttachmentBytes(ctx.crypto, row, ct);
+  const pt = await decryptAttachmentBytes(ctx.crypto, { iv: "", mime: "application/octet-stream" }, ct);
   const url = URL.createObjectURL(
-    new Blob([pt.buffer as ArrayBuffer], { type: attachmentContentType(row.mime) }),
+    new Blob([pt.buffer as ArrayBuffer], { type: attachmentContentType("application/octet-stream") }),
   );
   cachePut(cacheKey, url);
-  cachePut(`${ctx.slug}:path:${row.storage_path}`, url);
   return url;
 }
 

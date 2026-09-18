@@ -94,7 +94,18 @@ export class NoteApiError extends Error {
 
 export type NoteApiJsonOptions = {
   authorization?: string;
+  writerPublicKey?: string;
+  signature?: string;
 };
+
+export function fileResourceUrl(id: string): string {
+  return `${filesApiBaseUrl()}/${encodeURIComponent(id)}`;
+}
+
+export function filesListUrl(placeId: string): string {
+  const params = new URLSearchParams({ product: "note", place_id: placeId });
+  return `${filesApiBaseUrl()}?${params.toString()}`;
+}
 
 function isEnvelope(value: unknown): value is {
   ok?: boolean;
@@ -181,6 +192,8 @@ export async function noteApiJson<T>(
   };
   if (body) headers["Content-Type"] = "application/json";
   if (options?.authorization) headers.Authorization = options.authorization;
+  if (options?.writerPublicKey) headers["x-kodama-writer-key"] = options.writerPublicKey;
+  if (options?.signature) headers["x-kodama-signature"] = options.signature;
   const res = await fetch(url, {
     method,
     headers,

@@ -6,12 +6,16 @@
 import { createNoteApiDeliveryClient } from "@/lib/note-delivery-client";
 import {
   NoteApiError,
+  fileResourceUrl,
+  filesListUrl,
   isMissingPlaceError,
   noteApiGetBlob,
   noteApiJson,
   noteApiPutBlob,
   noteResourceUrl,
 } from "@/lib/note-api";
+import type { NoteSession } from "@/lib/note-protocol";
+import { canSignPlaceWrite, signPlaceWrite } from "@/lib/place-meta-sign";
 import {
   defaultNoteEntitlement,
   defaultNotePaymentPublic,
@@ -176,13 +180,52 @@ export type AttachmentRow = {
   created_at: string;
 };
 
-export async function listAttachments(slug: string): Promise<AttachmentRow[]> {
-  const data = await noteApiJson<AttachmentRow[] | { attachments?: AttachmentRow[]; items?: AttachmentRow[] }>(
-    "GET",
-    noteResourceUrl(slug, "attachments"),
-  );
-  if (Array.isArray(data)) return data;
-  return data.attachments ?? data.items ?? [];
+function asAttachmentRow(row: Record<string, unknown>): AttachmentRow | null {
+  const id = typeof row.id === "string" ? row.id : "";
+  if (!id) return null;
+  return {
+    id,
+    storage_path: typeof row.storage_path === "string" ? row.storage_path : id,
+    iv: typeof row.iv === "string" ? row.iv : "",
+    filename_ciphertext: typeof row.filename_ciphertext === "string" ? row.filename_ciphertext : "",
+    filename_iv: typeof row.filename_iv === "string" ? row.filename_iv : "",
+    mime: typeof row.mime === "string" ? row.mime : "application/octet-stream",
+    size: typeof row.size === "number" ? row.size : 0,
+    created_at: typeof row.created_at === "string" ? row.created_at : "",
+  };
+}
+
+/** List place files via GET /v1/files. v1 has no /notes/{slug}/attachments. */
+export async function listAttachments(
+  slug: string,
+  session?: NoteSession,
+): Promise<AttachmentRow[]> {
+  if (!session || !canSignPlaceWrite(session)) return [];
+  const document = { product: "note", place_id: slug };
+  const signed = await signPlaceWrite({
+    session,
+    slug,
+    purpose: "kodama-file-list-1",
+    document,
+  });
+  try {
+    const data = await noteApiJson<{ files?: Record<string, unknown>[] }>(
+      "GET",
+      filesListUrl(slug),
+      undefined,
+      { writerPublicKey: signed.writer_public_key, signature: signed.state_signature },
+    );
+    return (data.files ?? []).map(asAttachmentRow).filter((row): row is AttachmentRow => row !== null);
+  } catch (error) {
+    if (error instanceof NoteApiError && (error.status === 404 || error.status === 401)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function downloadFileById(id: string): Promise<Blob> {
+  return noteApiGetBlob(fileResourceUrl(id));
 }
 
 export async function registerAttachment(args: {

@@ -28,7 +28,7 @@ v1 is overwrite-only (no version history). **Payment is deferred.**
 | `PUT` | `/{slug}` | owner or editor | Legacy alias for private replace / password change. |
 | `PATCH` | `/{slug}` | owner | Burn/expiry only. |
 
-Attachment blobs use global `/v1/files`. See `KODAMA_BACKEND_REQUIREMENTS.md`.
+Attachment blobs use global `/v1/files` (`GET /v1/files?product=note&place_id={slug}` to list). There is no `/{slug}/attachments`.
 
 ### `GET /{slug}` / `GET /{slug}/public`
 

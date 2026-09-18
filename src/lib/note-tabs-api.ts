@@ -34,7 +34,11 @@ export async function putPublicTab(args: {
   displayOrder: number;
   session: NoteSession;
 }): Promise<PublicTabRecord> {
-  const document = workbookToPublicTabDocument(args.sheet, args.displayOrder);
+  const document = {
+    visibility: "public",
+    ...workbookToPublicTabDocument(args.sheet, args.displayOrder),
+    issued_at: new Date().toISOString(),
+  };
   const exists = typeof args.sheet.revision === "number";
   const purpose = exists ? KNP_PUBLIC_TAB_PUT : KNP_PUBLIC_TAB_CREATE;
   const signed = await signPlaceWrite({
@@ -48,11 +52,8 @@ export async function putPublicTab(args: {
     : noteResourceUrl(args.slug, "tabs");
   const method = exists ? "PUT" : "POST";
   const row = await noteApiJson<unknown>(method, path, {
-    visibility: "public",
     ...document,
     ...signed,
-    issued_at: new Date().toISOString(),
-    mutation_id: crypto.randomUUID(),
   });
   const parsed = parsePlacePublicView({ tabs: [row] }, args.slug).tabs[0];
   if (parsed) return parsed;
@@ -71,7 +72,7 @@ export async function deletePublicTab(args: {
   tabId: string;
   session: NoteSession;
 }): Promise<void> {
-  const document = { tab_id: args.tabId };
+  const document = { tab_id: args.tabId, issued_at: new Date().toISOString() };
   const signed = await signPlaceWrite({
     session: args.session,
     slug: args.slug,
@@ -82,8 +83,6 @@ export async function deletePublicTab(args: {
     await noteApiJson("DELETE", noteResourceUrl(args.slug, "tabs", args.tabId), {
       ...document,
       ...signed,
-      issued_at: new Date().toISOString(),
-      mutation_id: crypto.randomUUID(),
     });
   } catch (error) {
     if (error instanceof NoteApiError && error.status === 404) return;
@@ -98,20 +97,22 @@ export async function publishTab(args: {
   session: NoteSession;
 }): Promise<PublicTabRecord> {
   const public_tab = workbookToPublicTabDocument(args.sheet, args.displayOrder);
+  const document = {
+    public_tab,
+    issued_at: new Date().toISOString(),
+  };
   const signed = await signPlaceDocument({
     session: args.session,
     slug: args.slug,
     purpose: KNP_PUBLIC_TAB_PUBLISH,
-    document: public_tab,
+    document,
   });
   const row = await noteApiJson<unknown>(
     "POST",
     noteResourceUrl(args.slug, "tabs", args.sheet.sheet_id, "publish"),
     {
-      public_tab,
+      ...document,
       ...signed,
-      issued_at: new Date().toISOString(),
-      mutation_id: crypto.randomUUID(),
     },
   );
   return (
@@ -161,7 +162,7 @@ export async function unpublishTab(args: {
   tabId: string;
   session: NoteSession;
 }): Promise<void> {
-  const document = { tab_id: args.tabId };
+  const document = { issued_at: new Date().toISOString() };
   const signed = await signPlaceDocument({
     session: args.session,
     slug: args.slug,
@@ -172,8 +173,6 @@ export async function unpublishTab(args: {
     await noteApiJson("POST", noteResourceUrl(args.slug, "tabs", args.tabId, "unpublish"), {
       ...document,
       ...signed,
-      issued_at: new Date().toISOString(),
-      mutation_id: crypto.randomUUID(),
     });
   } catch (error) {
     if (error instanceof NoteApiError && error.status === 404) return;

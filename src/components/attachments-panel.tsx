@@ -61,7 +61,8 @@ export function AttachmentsPanel({
 
   const listQuery = useQuery({
     queryKey: attachmentsQueryKey(slug),
-    queryFn: () => fetchAttachmentList(slug),
+    queryFn: () =>
+      fetchAttachmentList(slug, crypto.kind === "knp" ? crypto.session : undefined),
     staleTime: 30_000,
     enabled: needsAttachmentList,
   });
